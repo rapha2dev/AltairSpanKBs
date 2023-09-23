@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-func Bake(term map[string]interface{}, memo *Memory) Scope {
+type Backed func() interface{}
+
+func Bake(term map[string]interface{}, memo *Memory) Backed {
 	if term["expression"] != nil {
 		exp := term["expression"].(map[string]interface{})
 		return func() interface{} {
@@ -39,11 +41,9 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 			g := val()
 			switch h := g.(type) {
 			case []interface{}:
-				if refs, ok := h[0].(*int); ok {
-					//fmt.Println("função em let:", term["name"].(map[string]interface{})["text"].(string))
+				if refs, ok := h[0].(*int); ok { // function ref
 					*refs++
 					defer h[1].(func())()
-					//defer fmt.Println("---- unref função em let:", term["name"].(map[string]interface{})["text"].(string))
 				}
 			}
 			name.Push(g)
@@ -60,17 +60,17 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 
 	case "Call":
 		callee := Bake(term["callee"].(map[string]interface{}), memo)
-		args := make([]Scope, len(term["arguments"].([]interface{})))
+		args := make([]Backed, len(term["arguments"].([]interface{})))
 		for i, t := range term["arguments"].([]interface{}) {
 			args[i] = Bake(t.(map[string]interface{}), memo)
 		}
 		var params []*Stack
-		var body Scope
+		var body Backed
 		return func() interface{} {
 			//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
 			if body == nil {
 				a := callee().([]interface{})
-				body = a[2].(Scope)
+				body = a[2].(Backed)
 				params = a[3].([]*Stack)
 			}
 

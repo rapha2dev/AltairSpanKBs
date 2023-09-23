@@ -33,7 +33,7 @@ func (self *Memory) MakeStack(name string) *Stack {
 	if index, has := self.indexes[name]; has {
 		return self.stacks[index]
 	} else {
-		stack := &Stack{data: []interface{}{}, position: -1, children: []*Stack{}}
+		stack := &Stack{data: []interface{}{}, position: -1, paramPosition: -1, children: []*Stack{}}
 		self.stacks = append(self.stacks, stack)
 		self.indexes[name] = self.seq
 		self.seq++

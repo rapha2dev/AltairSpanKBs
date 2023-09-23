@@ -1,13 +1,11 @@
 package interpreter
 
 type Stack struct {
-	parent        *Stack
-	children      []*Stack
-	inheritedData interface{}
-	params        []interface{}
-	data          []interface{}
-	position      int
-	isDone        bool
+	parent                  *Stack
+	children                []*Stack
+	inheritedData           interface{}
+	data, params            []interface{}
+	position, paramPosition int
 }
 
 func (self *Stack) Pop() {
@@ -23,11 +21,13 @@ func (self *Stack) Pop() {
 
 func (self *Stack) PushParam(v interface{}) {
 	self.params = append(self.params, v)
+	self.paramPosition++
 }
 
 func (self *Stack) PopParam() {
-	self.Push(self.params[len(self.params)-1])
-	self.params = self.params[:len(self.params)-1]
+	self.Push(self.params[self.paramPosition])
+	self.params = self.params[:self.paramPosition]
+	self.paramPosition--
 }
 
 func (self *Stack) Push(v interface{}) {
@@ -45,8 +45,8 @@ func (self *Stack) Value() interface{} {
 		if self.inheritedData != nil {
 			return self.inheritedData
 		}
-		if len(self.params) > 0 {
-			return self.params[len(self.params)-1]
+		if self.paramPosition >= 0 {
+			return self.params[self.paramPosition]
 		}
 		return nil
 	}

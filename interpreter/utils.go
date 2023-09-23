@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-type Scope func() interface{}
-
 func LoadAst(fileName string) (ast map[string]interface{}) {
 	if strings.Contains(fileName, ".json") {
 		b, _ := os.ReadFile(fileName)
