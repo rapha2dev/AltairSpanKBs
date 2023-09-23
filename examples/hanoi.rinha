@@ -7,7 +7,7 @@ let hanoi = fn (n) => {
 };
 let res = hanoi(25);
 print(if (res == 33554431) {
-	"   OK: " + res
+	"OK: " + res
 }else{
-	"   WRONG: " + res
+	"WRONG: " + res
 })

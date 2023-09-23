@@ -4,6 +4,7 @@ type Stack struct {
 	parent        *Stack
 	children      []*Stack
 	inheritedData interface{}
+	params        []interface{}
 	data          []interface{}
 	position      int
 	isDone        bool
@@ -20,6 +21,15 @@ func (self *Stack) Pop() {
 	self.position--
 }
 
+func (self *Stack) PushParam(v interface{}) {
+	self.params = append(self.params, v)
+}
+
+func (self *Stack) PopParam() {
+	self.Push(self.params[len(self.params)-1])
+	self.params = self.params[:len(self.params)-1]
+}
+
 func (self *Stack) Push(v interface{}) {
 	self.data = append(self.data, v)
 	self.position++
@@ -32,7 +42,13 @@ func (self *Stack) Value() interface{} {
 				return v
 			}
 		}
-		return self.inheritedData
+		if self.inheritedData != nil {
+			return self.inheritedData
+		}
+		if len(self.params) > 0 {
+			return self.params[len(self.params)-1]
+		}
+		return nil
 	}
 	return self.data[self.position]
 }

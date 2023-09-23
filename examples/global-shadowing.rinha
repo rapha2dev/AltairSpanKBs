@@ -5,7 +5,7 @@ let f = fn (a) => {
 };
 let res = f(1) + ":" +  g;
 print(if (res == "6:10") {
-	"   OK: " + res
+	"OK: " + res
 }else{
-	"   WRONG: " + res
+	"WRONG: " + res
 })

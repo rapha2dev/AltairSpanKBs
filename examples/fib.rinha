@@ -8,7 +8,7 @@ let fib = fn (n) => {
 
 let res = fib(35);
 print(if (res == 9227465) {
-	"   OK: " + res
+	"OK: " + res
 }else{
-	"   WRONG: " + res
+	"WRONG: " + res
 })

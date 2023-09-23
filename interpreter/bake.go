@@ -12,15 +12,13 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 		exp := term["expression"].(map[string]interface{})
 		return func() interface{} {
 			res := Bake(exp, memo)()
-			fmt.Print(res)
-			return nil
+			return res
 		}
 	}
 
 	switch term["kind"] {
 
 	case "Int":
-		//val := int(term["value"].(float64))
 		val := int64(term["value"].(float64))
 		return func() interface{} { return val }
 
@@ -62,17 +60,15 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 
 	case "Call":
 		callee := Bake(term["callee"].(map[string]interface{}), memo)
-
-		memo = memo.Fork()
 		args := make([]Scope, len(term["arguments"].([]interface{})))
 		for i, t := range term["arguments"].([]interface{}) {
 			args[i] = Bake(t.(map[string]interface{}), memo)
 		}
-
 		var params []*Stack
 		var body Scope
 		argsRes := make([]interface{}, len(args))
 		return func() interface{} {
+			//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
 			if body == nil {
 				a := callee().([]interface{})
 				body = a[2].(Scope)
@@ -81,16 +77,10 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 
 			for i, arg := range args {
 				argsRes[i] = arg()
-				//params[i].Push(argsRes[i])
-				// switch h := argsRes[i].(type) {
-				// case []interface{}:
-				// 	refs := h[0].(*int)
-				// 	*refs++
-				// 	defer h[1].(func())()
-				// }
+				params[i].PushParam(argsRes[i])
 			}
-			for i, param := range params {
-				param.Push(argsRes[i])
+			for _, param := range params {
+				param.PopParam()
 			}
 			v := body()
 			for _, param := range params {
@@ -138,22 +128,46 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 			case "Sub":
 				r := rhs().(int64)
 				return func() interface{} {
-					return lhs().(int64) - r
+					switch l := lhs().(type) {
+					case int64:
+						return l - r
+					case *big.Int:
+						return big.NewInt(0).Sub(l, big.NewInt(r))
+					}
+					return "<sub error>"
 				}
 			case "Lt":
 				r := rhs().(int64)
 				return func() interface{} {
-					return lhs().(int64) < r
+					switch l := lhs().(type) {
+					case int64:
+						return l < r
+					case *big.Int:
+						return l.Cmp(big.NewInt(r)) == -1
+					}
+					return "<lt error>"
 				}
 			case "Gt":
 				r := rhs().(int64)
 				return func() interface{} {
-					return lhs().(int64) > r
+					switch l := lhs().(type) {
+					case int64:
+						return l > r
+					case *big.Int:
+						return l.Cmp(big.NewInt(r)) == 1
+					}
+					return "<gt error>"
 				}
 			case "Eq":
 				r := rhs().(int64)
 				return func() interface{} {
-					return lhs().(int64) == r
+					switch l := lhs().(type) {
+					case int64:
+						return l == r
+					case *big.Int:
+						return l.Cmp(big.NewInt(r)) == 0
+					}
+					return "<eq error>"
 				}
 				// TODO: ops
 			}
@@ -202,8 +216,7 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 						return l + r
 					}
 				}
-				// TODO: tratar quando for adição por valor errado
-				return "<undefined>"
+				return "<add error>"
 			}
 		case "Sub":
 			return func() interface{} {
@@ -230,7 +243,7 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 						return l.String() + r
 					}
 				}
-				return "<undefined>"
+				return "<sub error>"
 			}
 		case "Lt":
 			return func() interface{} {
@@ -250,7 +263,7 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 						return l.Cmp(r) == -1
 					}
 				}
-				return "<undefined>"
+				return "<lt error>"
 			}
 		case "Gt":
 			return func() interface{} {
@@ -270,7 +283,7 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 						return l.Cmp(r) == 1
 					}
 				}
-				return "<undefined>"
+				return "<gt error>"
 			}
 		case "Eq":
 			return func() interface{} {
@@ -295,8 +308,7 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 				case string:
 					return l == rhs().(string)
 				}
-				// TODO: tratar quando for adição por valor errado
-				return "<undefined>"
+				return "<eq error>"
 			}
 		case "Or":
 			return func() interface{} {
@@ -327,8 +339,9 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 		}
 
 		return func() interface{} {
-			s := print(val()) + "\n"
-			return s
+			v := val()
+			fmt.Println(print(v))
+			return v
 		}
 	}
 	return nil

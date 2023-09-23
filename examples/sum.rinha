@@ -7,7 +7,7 @@ let sum = fn (n) => {
 };
 let res = sum(50000);
 print(if (res == 1250025000) {
-	"   OK: " + res
+	"OK: " + res
 }else{
-	"   WRONG: " + res
+	"WRONG: " + res
 })

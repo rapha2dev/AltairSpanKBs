@@ -15,7 +15,7 @@ let f2 = fn (arg0, arg1, arg2) => {
 };
 let res = f2(f1(), "f", "g");
 print(if (res == "abcdefg") {
-	"   OK: " + res
+	"OK: " + res
 }else{
-	"   WRONG: " + res
+	"WRONG: " + res
 })

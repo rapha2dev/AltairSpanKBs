@@ -1,4 +1,4 @@
-let mult = fn (x, m) => {    
+let mult = fn (x, m) => {        
     let rec = fn (b, k) => {
         if(k > 1){                        
             rec(b + x, k - 1)
@@ -11,16 +11,14 @@ let mult = fn (x, m) => {
 let factorial = fn (n) => {    
     if (n == 1) {
         n
-    }else{      
-        let g = factorial(n - 1); 
-        let k = n;           
-        mult(k, g)        
+    }else{               
+        mult(n, factorial(n - 1))        
     }
 };
 
 let res = factorial(5);
 print(if (res == 120) {
-	"   OK: " + res
+	"OK: " + res
 }else{
-	"   WRONG: " + res
+	"WRONG: " + res
 })

@@ -11,7 +11,7 @@ let combination = fn (n, k) => {
 };
 let res = combination(50, 5);
 print(if (res == 2118760) {
-	"   OK: " + res
+	"OK: " + res
 }else{
-	"   WRONG: " + res
+	"WRONG: " + res
 })

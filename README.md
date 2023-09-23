@@ -13,7 +13,7 @@ cargo install rinha
 ```
 Execução dos testes:
 ```
-go test -v .\interpreter
+go test -v ./interpreter
 ```
 ou 
 ```
