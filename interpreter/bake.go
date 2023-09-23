@@ -66,7 +66,6 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 		}
 		var params []*Stack
 		var body Scope
-		argsRes := make([]interface{}, len(args))
 		return func() interface{} {
 			//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
 			if body == nil {
@@ -76,8 +75,7 @@ func Bake(term map[string]interface{}, memo *Memory) Scope {
 			}
 
 			for i, arg := range args {
-				argsRes[i] = arg()
-				params[i].PushParam(argsRes[i])
+				params[i].PushParam(arg())
 			}
 			for _, param := range params {
 				param.PopParam()
