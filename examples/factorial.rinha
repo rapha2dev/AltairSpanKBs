@@ -1,23 +1,21 @@
-let mult = fn (x, m) => {        
-    let rec = fn (b, k) => {
-        if(k > 1){                        
-            rec(b + x, k - 1)
-        }else{
-            b
-        }
-    };
-    rec(x, m)
+let mult = fn (a, b, c) => {
+    if(c > 1){                        
+        mult(a, b + a, c - 1)
+    }else{
+        b
+    }    
 };
+
 let factorial = fn (n) => {    
     if (n == 1) {
         n
     }else{               
-        mult(n, factorial(n - 1))        
+        mult(n, n, factorial(n - 1))        
     }
 };
 
-let res = factorial(5);
-print(if (res == 120) {
+let res = factorial(10);
+print(if (res == 3628800) {
 	"OK: " + res
 }else{
 	"WRONG: " + res
