@@ -1,0 +1,8 @@
+let p1 = print(10);
+let p2 = print(true);
+let p3 = print((10, 20));
+let p4 = print("text");
+let p5 = print(fn () => {
+    1
+});
+print(p1+p2+p3+p4+p5)

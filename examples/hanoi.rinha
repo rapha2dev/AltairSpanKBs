@@ -1,0 +1,13 @@
+let hanoi = fn (n) => {
+    if(n == 1){
+        1
+    } else {
+        hanoi(n-1) + hanoi(n-1) + 1
+    }
+};
+let res = hanoi(25);
+print(if (res == 33554431) {
+	"   OK: " + res
+}else{
+	"   WRONG: " + res
+})

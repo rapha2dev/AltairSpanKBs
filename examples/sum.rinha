@@ -1,0 +1,13 @@
+let sum = fn (n) => {
+  if (n == 1) {
+    n
+  } else {
+    n + sum(n - 1)
+  }
+};
+let res = sum(50000);
+print(if (res == 1250025000) {
+	"   OK: " + res
+}else{
+	"   WRONG: " + res
+})

@@ -1,0 +1,21 @@
+let a = "a";
+let b = "b";
+let f1 = fn () => {
+	let d = fn () => {
+		"d"
+	};
+	let c = "c";
+	fn () => {
+		a + b + c + d()
+	}	
+};
+let f2 = fn (arg0, arg1, arg2) => {
+	let a = "e";
+	arg0() + a + arg1 + arg2
+};
+let res = f2(f1(), "f", "g");
+print(if (res == "abcdefg") {
+	"   OK: " + res
+}else{
+	"   WRONG: " + res
+})

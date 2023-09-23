@@ -1,0 +1,11 @@
+let g = 10;
+let f = fn (a) => {
+    let g = 5;
+    g + a
+};
+let res = f(1) + ":" +  g;
+print(if (res == "6:10") {
+	"   OK: " + res
+}else{
+	"   WRONG: " + res
+})

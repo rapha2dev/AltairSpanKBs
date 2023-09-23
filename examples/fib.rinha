@@ -1,0 +1,14 @@
+let fib = fn (n) => {
+  if (n < 2) {
+    n
+  } else {
+    fib(n - 1) + fib(n - 2)
+  }
+};
+
+let res = fib(35);
+print(if (res == 9227465) {
+	"   OK: " + res
+}else{
+	"   WRONG: " + res
+})
