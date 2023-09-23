@@ -1,6 +1,9 @@
 let _ = print(10);
 let _ = print(true);
-let _ = print((10, 20));
+let tup = (10, 20);
+let _ = print(tup);
+let _ = print(first(tup));
+let _ = print(second(tup));
 let _ = print("text");
 print(fn () => {
     1

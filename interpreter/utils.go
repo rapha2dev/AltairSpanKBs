@@ -8,16 +8,20 @@ import (
 	"strings"
 )
 
-func LoadAst(fileName string) (ast map[string]interface{}) {
+func LoadAst(fileName string) (code string, ast map[string]interface{}) {
 	if strings.Contains(fileName, ".json") {
 		b, _ := os.ReadFile(fileName)
 		ast = ParseAst(b)
+		b, _ = os.ReadFile(strings.TrimSuffix(fileName, "json") + "rinha")
+		code = string(b)
 	} else {
 		jsonFile := strings.TrimSuffix(fileName, "rinha") + "json"
 		cmd := exec.Command("rinha.exe", fileName)
 		out, _ := cmd.Output()
 		ast = ParseAst(out)
 		os.WriteFile(jsonFile, out, 0660)
+		b, _ := os.ReadFile(fileName)
+		code = string(b)
 	}
 	return
 }

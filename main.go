@@ -6,9 +6,8 @@ import (
 )
 
 func main() {
-	ast := interpreter.LoadAst(os.Args[1])
 	memo := interpreter.NewMemory()
-	program := interpreter.Bake(ast, memo)
+	program := interpreter.Bake(os.Args[1], memo)
 	program()
 	//memo.Dump()
 }
