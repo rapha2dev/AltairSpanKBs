@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 )
 
 type Backed func() interface{}
+type Closure [4]interface{}
+type Tuple [2]interface{}
 
 func Bake(file string, memo *Memory) Backed {
 	code, ast := LoadAst(file)
@@ -17,6 +20,13 @@ func Bake(file string, memo *Memory) Backed {
 	}
 
 	errorHandlers := []func(r interface{}){}
+	errorTypeDict := map[string]string{
+		"interpreter.Closure": "#closure",
+		"interpreter.Tuple":   "tuple",
+		"int64":               "int",
+		"string":              "string",
+		"bool":                "boolean",
+	}
 	currentErrorHandlerIndex := 0
 
 	var bake func(term map[string]interface{}, memo *Memory) Backed
@@ -34,14 +44,27 @@ func Bake(file string, memo *Memory) Backed {
 			}
 		}
 
+		// ----------------
 		errorHandlerIndex := len(errorHandlers)
 		errorHandlers = append(errorHandlers, func(r interface{}) {
 			loc := term["location"].(map[string]interface{})
+			start := int(loc["start"].(float64))
 			end := int(loc["end"].(float64))
-			line := len(strings.Split(code[:end], "\n"))
-			fmt.Printf("Error: %s\n	file: %s\n	line %d: ... %s ...\n", fmt.Sprint(r), loc["filename"], line, code[int(loc["start"].(float64)):end])
+			lines := strings.Split(code[:end], "\n")
+			errorLine := len(lines)
+			lineCol := -1
+			for i := 0; i < errorLine-1; i++ {
+				lineCol += len(lines[i]) + 1
+			}
+			fmt.Printf("\nerror in file: '%s', line: %d, start: %d, end: %d\n%s\n\n... %s ...\n\n\n", loc["filename"], errorLine, start-lineCol, end-lineCol, fmt.Sprint(r), code[start:end])
 			os.Exit(0)
 		})
+		emitError := func(v interface{}) {
+			currentErrorHandlerIndex = errorHandlerIndex
+			panic(v)
+		}
+
+		// -----------------
 
 		switch term["kind"] {
 
@@ -56,21 +79,31 @@ func Bake(file string, memo *Memory) Backed {
 		case "First":
 			tuple := bake(term["value"].(map[string]interface{}), memo)
 			return func() interface{} {
-				currentErrorHandlerIndex = errorHandlerIndex
-				return tuple().([]interface{})[0]
+				v := tuple()
+				if t, ok := v.(Tuple); ok {
+					return t[0]
+				} else {
+					emitError(fmt.Sprintf("Invalid tuple operation: first(<%s>)", errorTypeDict[fmt.Sprint(reflect.TypeOf(v))]))
+					return nil
+				}
 			}
 
 		case "Second":
 			tuple := bake(term["value"].(map[string]interface{}), memo)
 			return func() interface{} {
-				currentErrorHandlerIndex = errorHandlerIndex
-				return tuple().([]interface{})[1]
+				v := tuple()
+				if t, ok := v.(Tuple); ok {
+					return t[1]
+				} else {
+					emitError(fmt.Sprintf("Invalid tuple operation: second(<%s>)", errorTypeDict[fmt.Sprint(reflect.TypeOf(v))]))
+					return nil
+				}
 			}
 
 		case "Tuple":
 			first := bake(term["first"].(map[string]interface{}), memo)
 			second := bake(term["second"].(map[string]interface{}), memo)
-			return func() interface{} { return []interface{}{first(), second()} }
+			return func() interface{} { return Tuple{first(), second()} }
 
 		case "Let":
 			name := memo.MakeStack(term["name"].(map[string]interface{})["text"].(string))
@@ -79,7 +112,7 @@ func Bake(file string, memo *Memory) Backed {
 			return func() interface{} {
 				g := val()
 				switch h := g.(type) {
-				case []interface{}:
+				case Closure:
 					if refs, ok := h[0].(*int); ok { // function ref
 						*refs++
 						defer h[1].(func())()
@@ -94,10 +127,9 @@ func Bake(file string, memo *Memory) Backed {
 		case "Var":
 			name := memo.MakeStack(term["text"].(string))
 			return func() interface{} {
-				currentErrorHandlerIndex = errorHandlerIndex
 				v := name.Value()
 				if v == nil {
-					panic("var not found")
+					emitError("var not found")
 				}
 				return v
 			}
@@ -108,14 +140,18 @@ func Bake(file string, memo *Memory) Backed {
 			for i, t := range term["arguments"].([]interface{}) {
 				args[i] = bake(t.(map[string]interface{}), memo)
 			}
+			argsLen := len(args)
 			var params []*Stack
 			var body Backed
 			return func() interface{} {
 				//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
 				if body == nil {
-					a := callee().([]interface{})
+					a := callee().(Closure)
 					body = a[2].(Backed)
 					params = a[3].([]*Stack)
+					if len(params) != argsLen {
+						emitError("Wrong number of arguments")
+					}
 				}
 
 				for i, arg := range args {
@@ -146,7 +182,7 @@ func Bake(file string, memo *Memory) Backed {
 				}
 			}
 			return func() interface{} {
-				return []interface{}{&references, onUnref, body, params}
+				return Closure{&references, onUnref, body, params}
 			}
 
 		case "If":
@@ -164,7 +200,7 @@ func Bake(file string, memo *Memory) Backed {
 			lhs := bake(term["lhs"].(map[string]interface{}), memo)
 			rhs := bake(term["rhs"].(map[string]interface{}), memo)
 
-			// cache rhs
+			// otimização quando o rhs é um literal Int ou Bool
 			if rightKind := term["rhs"].(map[string]interface{})["kind"]; rightKind == "Int" {
 				switch term["op"] {
 				case "Sub":
@@ -175,8 +211,49 @@ func Bake(file string, memo *Memory) Backed {
 							return l - r
 						case *big.Int:
 							return big.NewInt(0).Sub(l, big.NewInt(r))
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> - <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
-						return "<sub error>"
+						return nil
+					}
+				case "Mul":
+					r := rhs().(int64)
+					return func() interface{} {
+						switch l := lhs().(type) {
+						case int64:
+							return l * r
+						case *big.Int:
+							return big.NewInt(0).Mul(l, big.NewInt(r))
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> * <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+						return nil
+					}
+				case "Div":
+					r := rhs().(int64)
+					return func() interface{} {
+						switch l := lhs().(type) {
+						case int64:
+							return l / r
+						case *big.Int:
+							return big.NewInt(0).Div(l, big.NewInt(r))
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> / <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+						return nil
+					}
+				case "Rem":
+					r := rhs().(int64)
+					return func() interface{} {
+						switch l := lhs().(type) {
+						case int64:
+							return l % r
+						case *big.Int:
+							return big.NewInt(0).Rem(l, big.NewInt(r))
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], "%", errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+						return nil
 					}
 				case "Lt":
 					r := rhs().(int64)
@@ -186,8 +263,23 @@ func Bake(file string, memo *Memory) Backed {
 							return l < r
 						case *big.Int:
 							return l.Cmp(big.NewInt(r)) == -1
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
-						return "<lt error>"
+						return nil
+					}
+				case "Lte":
+					r := rhs().(int64)
+					return func() interface{} {
+						switch l := lhs().(type) {
+						case int64:
+							return l <= r
+						case *big.Int:
+							return l.Cmp(big.NewInt(r)) <= 0
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+						return nil
 					}
 				case "Gt":
 					r := rhs().(int64)
@@ -197,8 +289,23 @@ func Bake(file string, memo *Memory) Backed {
 							return l > r
 						case *big.Int:
 							return l.Cmp(big.NewInt(r)) == 1
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
-						return "<gt error>"
+						return nil
+					}
+				case "Gte":
+					r := rhs().(int64)
+					return func() interface{} {
+						switch l := lhs().(type) {
+						case int64:
+							return l >= r
+						case *big.Int:
+							return l.Cmp(big.NewInt(r)) >= 0
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+						return nil
 					}
 				case "Eq":
 					r := rhs().(int64)
@@ -208,17 +315,24 @@ func Bake(file string, memo *Memory) Backed {
 							return l == r
 						case *big.Int:
 							return l.Cmp(big.NewInt(r)) == 0
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
-						return "<eq error>"
+						return nil
 					}
-					// TODO: ops
 				}
 			} else if rightKind == "Bool" {
 				switch term["op"] {
 				case "Eq":
-					v := rhs().(bool)
+					r := rhs().(bool)
 					return func() interface{} {
-						return lhs().(bool) == v
+						switch l := lhs().(type) {
+						case bool:
+							return l == r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+						return nil
 					}
 				}
 			}
@@ -238,6 +352,8 @@ func Bake(file string, memo *Memory) Backed {
 							return big.NewInt(0).Add(big.NewInt(l), r)
 						case string:
 							return strconv.FormatInt(l, 10) + r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> + <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
 						switch r := rhs().(type) {
@@ -247,6 +363,8 @@ func Bake(file string, memo *Memory) Backed {
 							return big.NewInt(0).Add(l, r)
 						case string:
 							return l.String() + r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> + <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case string:
 						switch r := rhs().(type) {
@@ -256,9 +374,13 @@ func Bake(file string, memo *Memory) Backed {
 							return l + r.String()
 						case string:
 							return l + r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> + <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> + ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
 					}
-					return "<add error>"
+					return nil
 				}
 			case "Sub":
 				return func() interface{} {
@@ -272,8 +394,8 @@ func Bake(file string, memo *Memory) Backed {
 							return l - r
 						case *big.Int:
 							return big.NewInt(0).Sub(big.NewInt(l), r)
-						case string:
-							return strconv.FormatInt(l, 10) + r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> - <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
 						switch r := rhs().(type) {
@@ -281,12 +403,20 @@ func Bake(file string, memo *Memory) Backed {
 							return big.NewInt(0).Sub(l, big.NewInt(r))
 						case *big.Int:
 							return big.NewInt(0).Sub(l, r)
-						case string:
-							return l.String() + r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> - <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> - ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
 					}
-					return "<sub error>"
+					return nil
 				}
+
+			case "Mul", "Div", "Rem":
+				emitError("Invalid binary operation")
+				// TODO: implementar essas operações para variaveis e bigint
+				return nil
+
 			case "Lt":
 				return func() interface{} {
 					switch l := lhs().(type) {
@@ -296,6 +426,8 @@ func Bake(file string, memo *Memory) Backed {
 							return l < r
 						case *big.Int:
 							return r.Cmp(big.NewInt(l)) == 1
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
 						switch r := rhs().(type) {
@@ -303,9 +435,39 @@ func Bake(file string, memo *Memory) Backed {
 							return l.Cmp(big.NewInt(r)) == -1
 						case *big.Int:
 							return l.Cmp(r) == -1
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> < ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
 					}
-					return "<lt error>"
+					return nil
+				}
+			case "Lte":
+				return func() interface{} {
+					switch l := lhs().(type) {
+					case int64:
+						switch r := rhs().(type) {
+						case int64:
+							return l <= r
+						case *big.Int:
+							return r.Cmp(big.NewInt(l)) >= 0
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					case *big.Int:
+						switch r := rhs().(type) {
+						case int64:
+							return l.Cmp(big.NewInt(r)) <= 0
+						case *big.Int:
+							return l.Cmp(r) <= 0
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> < ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+					}
+					return nil
 				}
 			case "Gt":
 				return func() interface{} {
@@ -316,6 +478,8 @@ func Bake(file string, memo *Memory) Backed {
 							return l > r
 						case *big.Int:
 							return r.Cmp(big.NewInt(l)) == -1
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
 						switch r := rhs().(type) {
@@ -323,40 +487,115 @@ func Bake(file string, memo *Memory) Backed {
 							return l.Cmp(big.NewInt(r)) == 1
 						case *big.Int:
 							return l.Cmp(r) == 1
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> > ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
 					}
-					return "<gt error>"
+					return nil
 				}
-			case "Eq":
+			case "Gte":
 				return func() interface{} {
 					switch l := lhs().(type) {
 					case int64:
 						switch r := rhs().(type) {
 						case int64:
-							return l == r
+							return l >= r
 						case *big.Int:
-							return r.Cmp(big.NewInt(l)) == 0
+							return r.Cmp(big.NewInt(l)) <= 0
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
 						switch r := rhs().(type) {
 						case int64:
-							return l.Cmp(big.NewInt(r)) == 0
+							return l.Cmp(big.NewInt(r)) >= 0
 						case *big.Int:
-							return l.Cmp(r) == 0
+							return l.Cmp(r) >= 0
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> > ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+					}
+					return nil
+				}
+			case "Eq", "Neq":
+				sign := true
+				if term["op"] == "Neq" {
+					sign = false
+				}
+				return func() interface{} {
+					switch l := lhs().(type) {
+					case int64:
+						switch r := rhs().(type) {
+						case int64:
+							return l == r == sign
+						case *big.Int:
+							return r.Cmp(big.NewInt(l)) == 0 == sign
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					case *big.Int:
+						switch r := rhs().(type) {
+						case int64:
+							return l.Cmp(big.NewInt(r)) == 0 == sign
+						case *big.Int:
+							return l.Cmp(r) == 0 == sign
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 
 					case bool:
-						return l == rhs().(bool)
+						switch r := rhs().(type) {
+						case bool:
+							return l == r == sign
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
 					case string:
-						return l == rhs().(string)
+						switch r := rhs().(type) {
+						case string:
+							return l == r == sign
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> == ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
 					}
-					return "<eq error>"
+					return nil
 				}
 			case "Or":
 				return func() interface{} {
-					return lhs().(bool) || rhs().(bool)
+					switch l := lhs().(type) {
+					case bool:
+						switch r := rhs().(type) {
+						case bool:
+							return l || r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> || <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> || ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+					}
+					return nil
 				}
-				// TODO: continuar outros operadores
+			case "And":
+				return func() interface{} {
+					switch l := lhs().(type) {
+					case bool:
+						switch r := rhs().(type) {
+						case bool:
+							return l && r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> || <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> || ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+					}
+					return nil
+				}
 			}
 
 		case "Print":
@@ -365,16 +604,14 @@ func Bake(file string, memo *Memory) Backed {
 			var print func(o interface{}) string
 			print = func(o interface{}) string {
 				switch v := o.(type) {
-				case []interface{}:
-					if _, ok := v[0].(*int); ok {
-						return "<#closure>"
-					} else {
-						s := []string{}
-						for _, d := range v {
-							s = append(s, print(d))
-						}
-						return "(" + strings.Join(s, ", ") + ")"
+				case Closure:
+					return "<#closure>"
+				case Tuple:
+					s := []string{}
+					for _, d := range v {
+						s = append(s, print(d))
 					}
+					return "(" + strings.Join(s, ", ") + ")"
 				default:
 					return fmt.Sprint(v)
 				}

@@ -7,8 +7,8 @@ let fib = fn (n, a, b) => {
     }
 };
 
-let res = fib(35, 0, 1);
-print(if (res == 9227465) {
+let res = fib(50, 0, 1);
+print(if (res == 1258626902 * 10 + 5) {
 	"OK: " + res
 }else{
 	"WRONG: " + res

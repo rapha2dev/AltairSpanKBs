@@ -1,0 +1,13 @@
+let f = fn (arg0, arg1, arg2) => {
+    if(arg0 == "c"){
+        arg0 + "d"
+    }else{
+        arg0 + f(arg1, arg2, arg0)
+    }
+};
+let res = f("a", "b", "c");
+print(if (res == "abcd") {
+	"OK: " + res
+}else{
+	"WRONG: " + res
+})

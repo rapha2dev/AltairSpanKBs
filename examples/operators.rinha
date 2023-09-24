@@ -1,0 +1,8 @@
+let a = 1;
+let b = 2;
+let _ = print((1 > 0) && (1 < 2) && (1 >= 0) && (1 <= 2) && (1 != 0) && (1 == 1) && first((2, 0)) == first((2, 3)));
+let _ = print((a > 0) && (a < b) && (a >= 0) && (a <= b) && (a != 0) && (1 == a) && first((a, b)) == second((b, a)));
+let _ = print(("a" == "a") && ("a" != "b"));
+let _ = print((true == true) && (true != false) && (true || false));
+let _ = print((10 / 5 == 2) && (2 * 5 == 10) && (15 % 4 == 3));
+print("end")

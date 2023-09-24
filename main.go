@@ -6,8 +6,15 @@ import (
 )
 
 func main() {
+	var file string
+	if len(os.Args) == 1 {
+		file = "/var/rinha/source.rinha.json"
+	} else {
+		file = os.Args[1]
+	}
+
 	memo := interpreter.NewMemory()
-	program := interpreter.Bake(os.Args[1], memo)
+	program := interpreter.Bake(file, memo)
 	program()
 	//memo.Dump()
 }

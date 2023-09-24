@@ -1,0 +1,27 @@
+let data = (((("a", "b"), ("c", "d")), (("e", "f"), ("g", "h"))), ((("i", "j"), ("k", "l")), (("m", "n"), ("o", "p"))));
+let find = fn (arr, dep, item) => {
+    let rec = fn (arr, dep) => {
+        if(dep == 0){
+            if(first(arr) == item){
+                item
+            }else{
+                second(arr)
+            }
+        }else{
+            let res = rec(first(arr), dep-1);
+            if(res == item){
+                item
+            }else{
+                rec(second(arr), dep-1)
+            }            
+        }
+    };    
+    rec(arr, dep)
+};
+let target = "h";
+let res = find(data, 3, target);
+print(if (res == target) {
+	"OK: " + res
+}else{
+	"WRONG: " + res
+})

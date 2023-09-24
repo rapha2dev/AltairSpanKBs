@@ -3,8 +3,8 @@ let f = fn (a) => {
     let g = 5;
     g + a
 };
-let res = f(1) + ":" +  g;
-print(if (res == "6:10") {
+let res = f(1) + "" +  g;
+print(if (res == "610") {
 	"OK: " + res
 }else{
 	"WRONG: " + res
