@@ -8,7 +8,7 @@ Altair Spankabytes é um simples interpretador feito exclusivamente para rodar a
 - [x] Suporta recursões profundas.
 
 ## Benchmark
-CPU: Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz
+Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz
 
 |Exemplo           | Altair           | NodeJS 18.12.0 (com eval) | Python 3.11.0     |
 |:-----------------|:-----------------|:--------------------------|:-----------------:|
