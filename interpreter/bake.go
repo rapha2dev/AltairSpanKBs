@@ -421,10 +421,56 @@ func Bake(file string, memo *Memory) Backed {
 					return nil
 				}
 
-			case "Mul", "Div", "Rem":
-				emitError("Invalid binary operation")
-				// TODO: implementar essas operações para variaveis e bigint
-				return nil
+			case "Mul":
+				return func() interface{} {
+					switch l := lhs().(type) {
+					case int64:
+						switch r := rhs().(type) {
+						case int64:
+							return l * r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> * <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> * ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+					}
+					// TODO: suportar bigint
+					return nil
+				}
+
+			case "Div":
+				return func() interface{} {
+					switch l := lhs().(type) {
+					case int64:
+						switch r := rhs().(type) {
+						case int64:
+							return l / r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> / <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> / ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+					}
+					// TODO: suportar bigint
+					return nil
+				}
+
+			case "Rem":
+				return func() interface{} {
+					switch l := lhs().(type) {
+					case int64:
+						switch r := rhs().(type) {
+						case int64:
+							return l % r
+						default:
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], "%", errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+						}
+					default:
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> %s ...", "%", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+					}
+					// TODO: suportar bigint
+					return nil
+				}
 
 			case "Lt":
 				return func() interface{} {
