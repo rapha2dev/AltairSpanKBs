@@ -14,7 +14,7 @@ func LoadAst(fileName string) (code string, ast map[string]interface{}) {
 		ast = ParseAst(b)
 		b, _ = os.ReadFile(strings.TrimSuffix(fileName, "json") + "rinha")
 		code = string(b)
-	} else {
+	} else if strings.Contains(fileName, ".rinha") {
 		jsonFile := strings.TrimSuffix(fileName, "rinha") + "json"
 		cmd := exec.Command("rinha.exe", fileName)
 		out, _ := cmd.Output()
