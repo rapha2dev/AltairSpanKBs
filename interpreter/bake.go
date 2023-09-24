@@ -57,9 +57,9 @@ func Bake(file string, memo *Memory) Backed {
 				for i := 0; i < errorLine-1; i++ {
 					lineCol += len(lines[i]) + 1
 				}
-				fmt.Printf("\nerror in file: '%s', line: %d, col: %d\n%s\n\n... %s ...\n\n\n", loc["filename"], errorLine, start-lineCol, fmt.Sprint(r), code[start:end])
+				fmt.Printf("\nError in file: '%s', line: %d, col: %d\n%s\n\n... %s ...\n\n\n", loc["filename"], errorLine, start-lineCol, fmt.Sprint(r), code[start:end])
 			} else {
-				fmt.Printf("\nerror in file: '%s' (source code not found)\n\n... %s ...\n\n\n", loc["filename"], fmt.Sprint(r))
+				fmt.Printf("\nError in file: '%s' (source code not found)\n\n... %s ...\n\n\n", loc["filename"], fmt.Sprint(r))
 			}
 			os.Exit(0)
 		})
@@ -243,6 +243,9 @@ func Bake(file string, memo *Memory) Backed {
 					return func() interface{} {
 						switch l := lhs().(type) {
 						case int64:
+							if r == 0 {
+								emitError("Integer divide by zero")
+							}
 							return l / r
 						case *big.Int:
 							return big.NewInt(0).Div(l, big.NewInt(r))
@@ -444,6 +447,9 @@ func Bake(file string, memo *Memory) Backed {
 					case int64:
 						switch r := rhs().(type) {
 						case int64:
+							if r == 0 {
+								emitError("integer divide by zero")
+							}
 							return l / r
 						default:
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> / <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
