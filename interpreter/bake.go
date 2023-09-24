@@ -48,15 +48,19 @@ func Bake(file string, memo *Memory) Backed {
 		errorHandlerIndex := len(errorHandlers)
 		errorHandlers = append(errorHandlers, func(r interface{}) {
 			loc := term["location"].(map[string]interface{})
-			start := int(loc["start"].(float64))
-			end := int(loc["end"].(float64))
-			lines := strings.Split(code[:end], "\n")
-			errorLine := len(lines)
-			lineCol := -1
-			for i := 0; i < errorLine-1; i++ {
-				lineCol += len(lines[i]) + 1
+			if len(code) > 0 {
+				start := int(loc["start"].(float64))
+				end := int(loc["end"].(float64))
+				lines := strings.Split(code[:end], "\n")
+				errorLine := len(lines)
+				lineCol := -1
+				for i := 0; i < errorLine-1; i++ {
+					lineCol += len(lines[i]) + 1
+				}
+				fmt.Printf("\nerror in file: '%s', line: %d, start: %d, end: %d\n%s\n\n... %s ...\n\n\n", loc["filename"], errorLine, start-lineCol, end-lineCol, fmt.Sprint(r), code[start:end])
+			} else {
+				fmt.Printf("\nerror in file: '%s' (source code not found)\n\n... %s ...\n\n\n", loc["filename"], fmt.Sprint(r))
 			}
-			fmt.Printf("\nerror in file: '%s', line: %d, start: %d, end: %d\n%s\n\n... %s ...\n\n\n", loc["filename"], errorLine, start-lineCol, end-lineCol, fmt.Sprint(r), code[start:end])
 			os.Exit(0)
 		})
 		emitError := func(v interface{}) {
