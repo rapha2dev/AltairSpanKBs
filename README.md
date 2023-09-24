@@ -4,7 +4,7 @@ Altair Spankabytes é um simples interpretador feito exclusivamente para rodar a
 ## Funcionalidades
 - [x] Shadowing
 - [x] Usa int64 como padrão e faz conversão automática em runtime para bigint (suportando valores altos no fibonacci com recursão de cauda).
-- [x] Descreve erros em runtime mostrando o número da linha, posição na linha e o código do trecho problemático.
+- [x] Descreve erros em runtime indicando a linha/coluna e o código do trecho problemático.
 - [x] Suporta recursões profundas.
 
 ## Benchmark
