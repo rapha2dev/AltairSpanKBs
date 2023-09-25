@@ -59,7 +59,7 @@ func Bake(file string, memo *Memory) Baked {
 			} else {
 				fmt.Printf("\nError in file: '%s' (source code not found)\n\n... %s ...\n\n\n", loc["filename"], fmt.Sprint(r))
 			}
-			os.Exit(0)
+			os.Exit(1)
 		})
 		emitError := func(v interface{}) {
 			currentErrorHandlerIndex = errorHandlerIndex
