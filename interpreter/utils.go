@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+type Closure [4]interface{}
+type Tuple [2]interface{}
+
 func LoadAst(fileName string) (code string, ast map[string]interface{}) {
 	if strings.Contains(fileName, ".json") {
 		b, _ := os.ReadFile(fileName)

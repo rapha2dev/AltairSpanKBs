@@ -9,11 +9,9 @@ import (
 	"strings"
 )
 
-type Backed func() interface{}
-type Closure [4]interface{}
-type Tuple [2]interface{}
+type Baked func() interface{}
 
-func Bake(file string, memo *Memory) Backed {
+func Bake(file string, memo *Memory) Baked {
 	code, ast := LoadAst(file)
 	if memo == nil {
 		memo = NewMemory()
@@ -29,8 +27,8 @@ func Bake(file string, memo *Memory) Backed {
 	}
 	currentErrorHandlerIndex := 0
 
-	var bake func(term map[string]interface{}, memo *Memory) Backed
-	bake = func(term map[string]interface{}, memo *Memory) Backed {
+	var bake func(term map[string]interface{}, memo *Memory) Baked
+	bake = func(term map[string]interface{}, memo *Memory) Baked {
 		if term["expression"] != nil {
 			exp := term["expression"].(map[string]interface{})
 			return func() interface{} {
@@ -140,18 +138,18 @@ func Bake(file string, memo *Memory) Backed {
 
 		case "Call":
 			callee := bake(term["callee"].(map[string]interface{}), memo)
-			args := make([]Backed, len(term["arguments"].([]interface{})))
+			args := make([]Baked, len(term["arguments"].([]interface{})))
 			for i, t := range term["arguments"].([]interface{}) {
 				args[i] = bake(t.(map[string]interface{}), memo)
 			}
 			argsLen := len(args)
 			var params []*Stack
-			var body Backed
+			var body Baked
 			return func() interface{} {
 				//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
 				if body == nil {
 					a := callee().(Closure)
-					body = a[2].(Backed)
+					body = a[2].(Baked)
 					params = a[3].([]*Stack)
 					if len(params) != argsLen {
 						emitError("Wrong number of arguments")
