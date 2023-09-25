@@ -582,8 +582,10 @@ func Bake(file string, memo *Memory) Baked {
 				}
 			case "Eq", "Neq":
 				sign := true
+				op := "=="
 				if term["op"] == "Neq" {
 					sign = false
+					op = "!="
 				}
 				return func() interface{} {
 					switch l := lhs().(type) {
@@ -594,7 +596,7 @@ func Bake(file string, memo *Memory) Baked {
 						case *big.Int:
 							return r.Cmp(big.NewInt(l)) == 0 == sign
 						default:
-							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], op, errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
 						switch r := rhs().(type) {
@@ -603,7 +605,7 @@ func Bake(file string, memo *Memory) Baked {
 						case *big.Int:
 							return l.Cmp(r) == 0 == sign
 						default:
-							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], op, errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 
 					case bool:
@@ -611,17 +613,17 @@ func Bake(file string, memo *Memory) Baked {
 						case bool:
 							return l == r == sign
 						default:
-							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], op, errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case string:
 						switch r := rhs().(type) {
 						case string:
 							return l == r == sign
 						default:
-							emitError(fmt.Sprintf("Invalid binary operation: <%s> == <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
+							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], op, errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					default:
-						emitError(fmt.Sprintf("Invalid binary operation: <%s> == ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))]))
+						emitError(fmt.Sprintf("Invalid binary operation: <%s> %s ...", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], op))
 					}
 					return nil
 				}
