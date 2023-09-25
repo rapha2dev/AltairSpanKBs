@@ -1,4 +1,4 @@
-<img src="./img/altair.png" width="150" height="150">
+<img src="./altair.png" width="150" height="150">
 
 ## Descrição
 Altair Spankabytes é um simples interpretador feito exclusivamente para rodar a linguagem criada para a rinha de compiladores. Ele é baseado em tree-walking interpreter e é feito apenas em Go 1.21 com suas libs internas.
