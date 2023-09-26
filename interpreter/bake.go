@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -26,6 +27,12 @@ func Bake(file string, memo *Memory) Baked {
 		"bool":                "boolean",
 	}
 	currentErrorHandlerIndex := 0
+
+	// -----
+	lastBakedLet := ""
+	scopedLets := []string{}
+	isDirtyClosure := false
+	closureDepth := 0
 
 	var bake func(term map[string]interface{}, memo *Memory) Baked
 	bake = func(term map[string]interface{}, memo *Memory) Baked {
@@ -108,8 +115,12 @@ func Bake(file string, memo *Memory) Baked {
 			return func() interface{} { return Tuple{first(), second()} }
 
 		case "Let":
-			name := memo.MakeStack(term["name"].(map[string]interface{})["text"].(string))
+			letName := term["name"].(map[string]interface{})["text"].(string)
+			lastBakedLet = letName
+			name := memo.MakeStack(letName)
 			val := bake(term["value"].(map[string]interface{}), memo)
+			lastBakedLet = ""
+			scopedLets = append(scopedLets, letName)
 			next := bake(term["next"].(map[string]interface{}), memo)
 			return func() interface{} {
 				g := val()
@@ -120,6 +131,15 @@ func Bake(file string, memo *Memory) Baked {
 						defer h[1].(func())()
 					}
 				}
+
+				if len(name.data) > 0 {
+					last := name.data[len(name.data)-1]
+					switch h := last.(type) {
+					case Closure: // a função antiga armazenada no let não será mais pura
+						h[4].(*Memoize).enabled = false
+					}
+				}
+
 				name.Push(g)
 				v := next()
 				name.Pop()
@@ -127,7 +147,9 @@ func Bake(file string, memo *Memory) Baked {
 			}
 
 		case "Var":
-			name := memo.MakeStack(term["text"].(string))
+			varName := term["text"].(string)
+			name := memo.MakeStack(varName)
+			isDirtyClosure = isDirtyClosure || !slices.Contains(scopedLets, varName)
 			return func() interface{} {
 				v := name.Value()
 				if v == nil {
@@ -142,49 +164,127 @@ func Bake(file string, memo *Memory) Baked {
 			for i, t := range term["arguments"].([]interface{}) {
 				args[i] = bake(t.(map[string]interface{}), memo)
 			}
+
 			argsLen := len(args)
 			var params []*Stack
 			var body Baked
+			var memoize *Memoize
 			return func() interface{} {
 				//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
 				if body == nil {
 					a := callee().(Closure)
 					body = a[2].(Baked)
 					params = a[3].([]*Stack)
+					memoize = a[4].(*Memoize)
 					if len(params) != argsLen {
 						emitError("Wrong number of arguments")
 					}
 				}
 
-				for i, arg := range args {
-					params[i].PushParam(arg())
+				if memoize.enabled {
+					key := ""
+					for i, arg := range args {
+						switch a := arg().(type) {
+						case int64:
+							key += strconv.FormatInt(a, 10) + ","
+							params[i].PushParam(a)
+						case *big.Int:
+							key += a.String() + ","
+							params[i].PushParam(a)
+						default: // se não tiver valor valido desabilita a cache
+							memoize.enabled = false
+							params[i].PushParam(a)
+							//fmt.Println("desistiu de cache")
+						}
+					}
+					for _, param := range params {
+						param.PopParam()
+					}
+					if v, h := memoize.cache[key]; h {
+						for _, param := range params {
+							param.Pop()
+						}
+						memoize.cacheMiss = 0
+						//fmt.Println("use memoize cache")
+						return v
+					} else if memoize.cacheSize == MemoizeCacheLimit {
+						if memoize.cacheMiss == 1000000 {
+							fmt.Println("desistiu de cache")
+							memoize.enabled = false
+						} else {
+							memoize.cacheMiss++
+						}
+					}
+					v := body()
+					for _, param := range params {
+						param.Pop()
+					}
+					if memoize.enabled {
+						if memoize.cacheSize >= MemoizeCacheLimit {
+							//fmt.Println("cache full")
+							for k := range memoize.cache {
+								delete(memoize.cache, k)
+								break
+							}
+						} else {
+							memoize.cacheSize++
+						}
+						//fmt.Println("save memoize cache")
+						memoize.cache[key] = v
+					}
+					return v
+				} else {
+					for i, arg := range args {
+						params[i].PushParam(arg())
+					}
+					for _, param := range params {
+						param.PopParam()
+					}
+					v := body()
+					for _, param := range params {
+						param.Pop()
+					}
+					return v
 				}
-				for _, param := range params {
-					param.PopParam()
-				}
-				v := body()
-				for _, param := range params {
-					param.Pop()
-				}
-				return v
 			}
 
 		case "Function":
+			ownerLet := lastBakedLet
 			memo = memo.Fork()
-			body := bake(term["value"].(map[string]interface{}), memo)
+
+			befScopedLets := scopedLets
+			scopedLets = []string{ownerLet}
 			params := make([]*Stack, len(term["parameters"].([]interface{})))
 			for i, p := range term["parameters"].([]interface{}) {
-				params[i] = memo.MakeStack(p.(map[string]interface{})["text"].(string))
+				paramName := p.(map[string]interface{})["text"].(string)
+				params[i] = memo.MakeStack(paramName)
+				scopedLets = append(scopedLets, paramName)
 			}
+			if closureDepth == 0 { // apenas reseta quando a função está no root
+				isDirtyClosure = false
+			}
+			closureDepth++
+			body := bake(term["value"].(map[string]interface{}), memo)
+			closureDepth--
+			defer func() { scopedLets = befScopedLets }()
+
+			// Memoize
+			memoize := &Memoize{cache: map[string]interface{}{}}
+			memoize.enabled = ownerLet != "" && !isDirtyClosure
+			// if memoize.enabled {
+			// 	fmt.Println("memoize candidate let:", ownerLet, scopedLets)
+			// }
+
 			references := 0
 			onUnref := func() {
 				references--
 				if references == 0 {
+					memoize.cache = map[string]interface{}{}
 					memo.OnUnreferenced()
 				}
 			}
 			return func() interface{} {
-				return Closure{&references, onUnref, body, params}
+				return Closure{&references, onUnref, body, params, memoize}
 			}
 
 		case "If":

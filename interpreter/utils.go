@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-type Closure [4]interface{}
+type Closure [5]interface{}
 type Tuple [2]interface{}
 
 func LoadAst(fileName string) (code string, ast map[string]interface{}) {
