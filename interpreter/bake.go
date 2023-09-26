@@ -126,10 +126,8 @@ func Bake(file string, memo *Memory) Baked {
 				g := val()
 				switch h := g.(type) {
 				case Closure:
-					if refs, ok := h[0].(*int); ok { // function ref
-						*refs++
-						defer h[1].(func())()
-					}
+					*h[0].(*int)++
+					defer h[1].(func())()
 				}
 
 				if len(name.data) > 0 {
