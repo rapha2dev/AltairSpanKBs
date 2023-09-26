@@ -760,6 +760,7 @@ func Bake(file string, memo *Memory) Baked {
 			}
 
 		case "Print":
+			isDirtyClosure = true
 			val := bake(term["value"].(map[string]interface{}), memo)
 
 			var print func(o interface{}) string
