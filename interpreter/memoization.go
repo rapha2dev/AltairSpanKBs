@@ -5,9 +5,8 @@ const (
 )
 
 type Memoize struct {
-	enabled         bool
-	cacheKeyBuilder func()
-	cache           map[string]interface{}
-	cacheSize       int
-	cacheMiss       int
+	enabled   bool
+	cache     map[string]interface{}
+	cacheSize int
+	cacheMiss int
 }
