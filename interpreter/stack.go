@@ -12,7 +12,9 @@ func (self *Stack) Pop() {
 	if len(self.children) > 0 {
 		v := self.Value()
 		for _, c := range self.children {
-			c.inheritedData = v
+			if c.inheritedData == nil { // aceita apenas o valor do primeiro pop, porque o termino das chamadas next() em recursão são invertidos
+				c.inheritedData = v
+			}
 		}
 	}
 	self.data = self.data[:self.position]
