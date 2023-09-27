@@ -191,8 +191,7 @@ func Bake(file string, memo *Memory) Baked {
 							params[i].PushParam(a)
 						default: // se não tiver valor valido desabilita a cache
 							memoize.enabled = false
-							params[i].PushParam(a)
-							//fmt.Println("desistiu de cache")
+							params[i].PushParam(a)							
 						}
 					}
 					for _, param := range params {
@@ -207,7 +206,6 @@ func Bake(file string, memo *Memory) Baked {
 						return v
 					} else if memoize.cacheSize == MemoizeCacheLimit {
 						if memoize.cacheMiss == 1000000 {
-							fmt.Println("desistiu de cache")
 							memoize.enabled = false
 						} else {
 							memoize.cacheMiss++
