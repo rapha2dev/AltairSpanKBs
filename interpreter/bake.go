@@ -170,12 +170,16 @@ func Bake(file string, memo *Memory) Baked {
 			return func() interface{} {
 				//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
 				if body == nil {
-					a := callee().(Closure)
-					body = a[2].(Baked)
-					params = a[3].([]*Stack)
-					memoize = a[4].(*Memoize)
-					if len(params) != argsLen {
-						emitError("Wrong number of arguments")
+					x := callee()
+					if a, ok := x.(Closure); ok {
+						body = a[2].(Baked)
+						params = a[3].([]*Stack)
+						memoize = a[4].(*Memoize)
+						if len(params) != argsLen {
+							emitError("Wrong number of arguments")
+						}
+					} else {
+						emitError(fmt.Sprintf("it is not possible to call a <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(x))]))
 					}
 				}
 
