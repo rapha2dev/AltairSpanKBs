@@ -1,0 +1,15 @@
+let fibo = fn (n) => {
+    let v = n();
+  if (v < 2) {
+    v
+  } else {        
+    fibo(fn () => v - 1) + fibo(fn () => v - 2)
+  }
+};
+
+let res = fibo(fn () => 15);
+print(if (res == 610) {
+	"OK: " + res
+}else{
+	"WRONG: " + res
+})

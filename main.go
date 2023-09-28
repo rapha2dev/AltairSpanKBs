@@ -16,11 +16,9 @@ func main() {
 	}
 
 	t := time.Now()
-	memo := interpreter.NewMemory()
-	program := interpreter.Bake(file, memo)
+	program := interpreter.Bake(file)
 	program()
 	if os.Args[len(os.Args)-1] == "time" {
 		fmt.Printf("\ntime: %f secs\n\n", time.Now().Sub(t).Seconds())
 	}
-	//memo.Dump()
 }

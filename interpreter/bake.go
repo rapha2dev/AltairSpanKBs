@@ -12,11 +12,8 @@ import (
 
 type Baked func() interface{}
 
-func Bake(file string, memo *Memory) Baked {
+func Bake(file string) Baked {
 	code, ast := LoadAst(file)
-	if memo == nil {
-		memo = NewMemory()
-	}
 
 	errorHandlers := []func(r interface{}){}
 	errorTypeDict := map[string]string{
@@ -26,16 +23,22 @@ func Bake(file string, memo *Memory) Baked {
 		"string":              "string",
 		"bool":                "boolean",
 	}
-	currentErrorHandlerIndex := 0
 
-	// -----
+	// ----- pré runtime
+	var scopeBuilder *ScopeBuilder
 	lastBakedLet := ""
 	scopedLets := []string{}
 	isDirtyClosure := false
 	closureDepth := 0
+	// ----
 
-	var bake func(term map[string]interface{}, memo *Memory) Baked
-	bake = func(term map[string]interface{}, memo *Memory) Baked {
+	// ----- runtime
+	var currScopeInstance *ScopeInstance
+	currentErrorHandlerIndex := 0
+	// -----
+
+	var bake func(term map[string]interface{}) Baked
+	bake = func(term map[string]interface{}) Baked {
 		if term["expression"] != nil {
 			exp := term["expression"].(map[string]interface{})
 			return func() interface{} {
@@ -44,8 +47,12 @@ func Bake(file string, memo *Memory) Baked {
 						errorHandlers[currentErrorHandlerIndex](r)
 					}
 				}()
-				res := bake(exp, memo)()
-				return res
+				root := newScope()
+				scopeBuilder = root
+				run := bake(exp)
+				currScopeInstance = root.New()
+				//root.End()
+				return run()
 			}
 		}
 
@@ -86,7 +93,7 @@ func Bake(file string, memo *Memory) Baked {
 			return func() interface{} { return val }
 
 		case "First":
-			tuple := bake(term["value"].(map[string]interface{}), memo)
+			tuple := bake(term["value"].(map[string]interface{}))
 			return func() interface{} {
 				v := tuple()
 				if t, ok := v.(Tuple); ok {
@@ -98,7 +105,7 @@ func Bake(file string, memo *Memory) Baked {
 			}
 
 		case "Second":
-			tuple := bake(term["value"].(map[string]interface{}), memo)
+			tuple := bake(term["value"].(map[string]interface{}))
 			return func() interface{} {
 				v := tuple()
 				if t, ok := v.(Tuple); ok {
@@ -110,18 +117,18 @@ func Bake(file string, memo *Memory) Baked {
 			}
 
 		case "Tuple":
-			first := bake(term["first"].(map[string]interface{}), memo)
-			second := bake(term["second"].(map[string]interface{}), memo)
+			first := bake(term["first"].(map[string]interface{}))
+			second := bake(term["second"].(map[string]interface{}))
 			return func() interface{} { return Tuple{first(), second()} }
 
 		case "Let":
 			letName := term["name"].(map[string]interface{})["text"].(string)
 			lastBakedLet = letName
-			name := memo.MakeStack(letName)
-			val := bake(term["value"].(map[string]interface{}), memo)
+			name := scopeBuilder.Register(letName)
+			val := bake(term["value"].(map[string]interface{}))
 			lastBakedLet = ""
 			scopedLets = append(scopedLets, letName)
-			next := bake(term["next"].(map[string]interface{}), memo)
+			next := bake(term["next"].(map[string]interface{}))
 			return func() interface{} {
 				g := val()
 				switch h := g.(type) {
@@ -129,27 +136,27 @@ func Bake(file string, memo *Memory) Baked {
 					*h[0].(*int)++
 					defer h[1].(func())()
 				}
-
-				if len(name.data) > 0 {
-					last := name.data[len(name.data)-1]
-					switch h := last.(type) {
+				prev := currScopeInstance.Value(name, currScopeInstance.scope)
+				if prev != nil {
+					switch h := prev.(type) {
 					case Closure: // a função antiga armazenada no let não será mais pura
 						h[4].(*Memoize).enabled = false
 					}
 				}
-
-				name.Push(g)
-				v := next()
-				name.Pop()
-				return v
+				currScopeInstance.Set(name, g)
+				return next()
 			}
 
 		case "Var":
+			scope := scopeBuilder
 			varName := term["text"].(string)
-			name := memo.MakeStack(varName)
+			name := scopeBuilder.Register(varName)
 			isDirtyClosure = isDirtyClosure || !slices.Contains(scopedLets, varName)
 			return func() interface{} {
-				v := name.Value()
+				v := currScopeInstance.Value(name, scope)
+				if v == nil {
+					v = currScopeInstance.parent.Find(varName)
+				}
 				if v == nil {
 					emitError("var not found")
 				}
@@ -157,54 +164,48 @@ func Bake(file string, memo *Memory) Baked {
 			}
 
 		case "Call":
-			callee := bake(term["callee"].(map[string]interface{}), memo)
+			callee := bake(term["callee"].(map[string]interface{}))
 			args := make([]Baked, len(term["arguments"].([]interface{})))
 			for i, t := range term["arguments"].([]interface{}) {
-				args[i] = bake(t.(map[string]interface{}), memo)
+				args[i] = bake(t.(map[string]interface{}))
 			}
 
 			argsLen := len(args)
-			var params []*Stack
 			var body Baked
 			var memoize *Memoize
+			var params []int
+			var scopeInstance *ScopeInstance
 			return func() interface{} {
-				//fmt.Println("call:", term["callee"].(map[string]interface{})["text"])
-				if body == nil {
-					x := callee()
-					if a, ok := x.(Closure); ok {
-						body = a[2].(Baked)
-						params = a[3].([]*Stack)
-						memoize = a[4].(*Memoize)
-						if len(params) != argsLen {
-							emitError("Wrong number of arguments")
-						}
-					} else {
-						emitError(fmt.Sprintf("it is not possible to call a <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(x))]))
+				x := callee()
+				if a, ok := x.(Closure); ok {
+					body = a[2].(Baked)
+					params = a[3].([]int)
+					memoize = a[4].(*Memoize)
+					scopeInstance = a[5].(*ScopeInstance)
+					if len(params) != argsLen {
+						emitError("Wrong number of arguments")
 					}
+				} else {
+					emitError(fmt.Sprintf("it is not possible to call a <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(x))]))
 				}
 
 				if memoize.enabled {
 					key := ""
+					child := scopeInstance.Child(scopeInstance.scope)
 					for i, arg := range args {
 						switch a := arg().(type) {
 						case int64:
 							key += strconv.FormatInt(a, 10) + ","
-							params[i].PushParam(a)
+							child.Set(params[i], arg())
 						case *big.Int:
 							key += a.String() + ","
-							params[i].PushParam(a)
+							child.Set(params[i], arg())
 						default: // se não tiver valor valido desabilita a cache
 							memoize.enabled = false
-							params[i].PushParam(a)							
+							child.Set(params[i], arg())
 						}
-					}
-					for _, param := range params {
-						param.PopParam()
 					}
 					if v, h := memoize.cache[key]; h {
-						for _, param := range params {
-							param.Pop()
-						}
 						memoize.cacheMiss = 0
 						//fmt.Println("use memoize cache")
 						return v
@@ -215,10 +216,10 @@ func Bake(file string, memo *Memory) Baked {
 							memoize.cacheMiss++
 						}
 					}
+					bef := currScopeInstance
+					currScopeInstance = child
 					v := body()
-					for _, param := range params {
-						param.Pop()
-					}
+					currScopeInstance = bef
 					if memoize.enabled {
 						if memoize.cacheSize >= MemoizeCacheLimit {
 							//fmt.Println("cache full")
@@ -234,63 +235,62 @@ func Bake(file string, memo *Memory) Baked {
 					}
 					return v
 				} else {
+					child := scopeInstance.Child(scopeInstance.scope)
 					for i, arg := range args {
-						params[i].PushParam(arg())
+						child.Set(params[i], arg())
 					}
-					for _, param := range params {
-						param.PopParam()
-					}
+					bef := currScopeInstance
+					currScopeInstance = child
 					v := body()
-					for _, param := range params {
-						param.Pop()
-					}
+					currScopeInstance = bef
 					return v
 				}
 			}
 
 		case "Function":
-			ownerLet := lastBakedLet
-			memo = memo.Fork()
+			befScope := scopeBuilder
+			scope := newScope()
+			scopeBuilder = scope
 
+			ownerLet := lastBakedLet
 			befScopedLets := scopedLets
 			scopedLets = []string{ownerLet}
-			params := make([]*Stack, len(term["parameters"].([]interface{})))
+			paramIndexes := make([]int, len(term["parameters"].([]interface{})))
 			for i, p := range term["parameters"].([]interface{}) {
 				paramName := p.(map[string]interface{})["text"].(string)
-				params[i] = memo.MakeStack(paramName)
+				paramIndexes[i] = scope.Register(paramName)
 				scopedLets = append(scopedLets, paramName)
 			}
 			if closureDepth == 0 { // apenas reseta quando a função está no root
 				isDirtyClosure = false
 			}
 			closureDepth++
-			body := bake(term["value"].(map[string]interface{}), memo)
+			body := bake(term["value"].(map[string]interface{}))
 			closureDepth--
+			//scope.End()
+			scopeBuilder = befScope
 			defer func() { scopedLets = befScopedLets }()
 
 			// Memoize
 			memoize := &Memoize{cache: map[string]interface{}{}}
 			memoize.enabled = ownerLet != "" && !isDirtyClosure
-			// if memoize.enabled {
-			// 	fmt.Println("memoize candidate let:", ownerLet, scopedLets)
-			// }
 
 			references := 0
 			onUnref := func() {
 				references--
 				if references == 0 {
 					memoize.cache = map[string]interface{}{}
-					memo.OnUnreferenced()
 				}
 			}
 			return func() interface{} {
-				return Closure{&references, onUnref, body, params, memoize}
+				inst := currScopeInstance.Child(scope)
+				return Closure{&references, onUnref, body, paramIndexes, memoize, inst}
 			}
 
 		case "If":
-			condition := bake(term["condition"].(map[string]interface{}), memo)
-			then := bake(term["then"].(map[string]interface{}), memo)
-			otherwise := bake(term["otherwise"].(map[string]interface{}), memo)
+			condition := bake(term["condition"].(map[string]interface{}))
+			then := bake(term["then"].(map[string]interface{}))
+			otherwise := bake(term["otherwise"].(map[string]interface{}))
 			return func() interface{} {
 				v := condition()
 				if b, ok := v.(bool); ok {
@@ -304,8 +304,8 @@ func Bake(file string, memo *Memory) Baked {
 			}
 
 		case "Binary":
-			lhs := bake(term["lhs"].(map[string]interface{}), memo)
-			rhs := bake(term["rhs"].(map[string]interface{}), memo)
+			lhs := bake(term["lhs"].(map[string]interface{}))
+			rhs := bake(term["rhs"].(map[string]interface{}))
 
 			// otimização quando o rhs é um literal Int ou Bool
 			if rightKind := term["rhs"].(map[string]interface{})["kind"]; rightKind == "Int" {
@@ -761,7 +761,7 @@ func Bake(file string, memo *Memory) Baked {
 
 		case "Print":
 			isDirtyClosure = true
-			val := bake(term["value"].(map[string]interface{}), memo)
+			val := bake(term["value"].(map[string]interface{}))
 
 			var print func(o interface{}) string
 			print = func(o interface{}) string {
@@ -788,5 +788,5 @@ func Bake(file string, memo *Memory) Baked {
 		return nil
 	}
 
-	return bake(ast, memo)
+	return bake(ast)
 }
