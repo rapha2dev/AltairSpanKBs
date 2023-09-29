@@ -51,7 +51,6 @@ func Bake(file string) Baked {
 				scopeBuilder = root
 				run := bake(exp)
 				currScopeInstance = root.New()
-				//root.End()
 				return run()
 			}
 		}
@@ -207,10 +206,10 @@ func Bake(file string) Baked {
 							memoize.cacheMiss++
 						}
 					}
-					bef := currScopeInstance
+					prev := currScopeInstance
 					currScopeInstance = child
 					v := scopeInstance.scope.body()
-					currScopeInstance = bef
+					currScopeInstance = prev
 					if memoize.enabled {
 						if memoize.cacheSize >= MemoizeCacheLimit {
 							for k := range memoize.cache {
@@ -228,21 +227,21 @@ func Bake(file string) Baked {
 					for i, arg := range args {
 						child.Set(params[i], arg())
 					}
-					bef := currScopeInstance
+					prev := currScopeInstance
 					currScopeInstance = child
 					v := scopeInstance.scope.body()
-					currScopeInstance = bef
+					currScopeInstance = prev
 					return v
 				}
 			}
 
 		case "Function":
-			befScope := scopeBuilder
+			prevScope := scopeBuilder
 			scope := newScopeBuilder()
 			scopeBuilder = scope
 
 			ownerLet := lastBakedLet
-			befScopedLets := scopedLets
+			prevScopedLets := scopedLets
 			scopedLets = []string{ownerLet}
 			scope.paramIndexes = make([]int, len(term["parameters"].([]interface{})))
 			for i, p := range term["parameters"].([]interface{}) {
@@ -256,9 +255,8 @@ func Bake(file string) Baked {
 			closureDepth++
 			scope.body = bake(term["value"].(map[string]interface{}))
 			closureDepth--
-			//scope.End()
-			scopeBuilder = befScope
-			defer func() { scopedLets = befScopedLets }()
+			scopeBuilder = prevScope
+			defer func() { scopedLets = prevScopedLets }()
 
 			// Memoize
 			scope.memoize = &Memoize{cache: map[string]interface{}{}}
