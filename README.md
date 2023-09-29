@@ -10,6 +10,16 @@ Altair Spankabytes é um simples interpretador feito exclusivamente para rodar a
 - [x] Descreve erros em runtime indicando a linha/coluna e o código do trecho problemático.
 - [x] Suporta recursões profundas.
 
+## Desempenho
+Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz
+
+|Exemplo           | Altair           
+|:-----------------|:-----------------:|
+|fib(46)           |~0.0005 secs       |
+|fib(430000)       |~6.1 secs          |
+|hanoi(420000)     |~15.0 secs         |
+|sum(420000)       |~0.82 secs         |
+
 ## Como utilizar
 ```
 go run . ./examples/fib.json
