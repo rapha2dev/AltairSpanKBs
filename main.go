@@ -15,10 +15,12 @@ func main() {
 		file = os.Args[1]
 	}
 
-	t := time.Now()
 	program := interpreter.Bake(file)
-	program()
 	if os.Args[len(os.Args)-1] == "time" {
+		t := time.Now()
+		program()
 		fmt.Printf("\ntime: %f secs\n\n", time.Now().Sub(t).Seconds())
+	} else {
+		program()
 	}
 }

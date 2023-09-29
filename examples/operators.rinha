@@ -5,4 +5,5 @@ let _ = print((a > 0) && (a < b) && (a >= 0) && (a <= b) && (a != 0) && (1 == a)
 let _ = print(("a" == "a") && ("a" != "b"));
 let _ = print((true == true) && (true != false) && (true || false));
 let _ = print((10 / 5 == 2) && (2 * 5 == 10) && (15 % 4 == 3));
+let _ = print("10"+1=="101");
 print("end")

@@ -47,7 +47,7 @@ func Bake(file string) Baked {
 						errorHandlers[currentErrorHandlerIndex](r)
 					}
 				}()
-				root := newScope()
+				root := newScopeBuilder()
 				scopeBuilder = root
 				run := bake(exp)
 				currScopeInstance = root.New()
@@ -131,16 +131,12 @@ func Bake(file string) Baked {
 			next := bake(term["next"].(map[string]interface{}))
 			return func() interface{} {
 				g := val()
-				switch h := g.(type) {
-				case Closure:
-					*h[0].(*int)++
-					defer h[1].(func())()
-				}
 				prev := currScopeInstance.Value(name, currScopeInstance.scope)
 				if prev != nil {
-					switch h := prev.(type) {
-					case Closure: // a função antiga armazenada no let não será mais pura
-						h[4].(*Memoize).enabled = false
+					// a função antiga armazenada no let não será mais pura
+					if h, ok := prev.(*ScopeInstance); ok && h.scope.memoize != nil {
+						h.scope.memoize.enabled = false
+						h.scope.memoize.cache = nil
 					}
 				}
 				currScopeInstance.Set(name, g)
@@ -171,25 +167,21 @@ func Bake(file string) Baked {
 			}
 
 			argsLen := len(args)
-			var body Baked
-			var memoize *Memoize
-			var params []int
 			var scopeInstance *ScopeInstance
 			return func() interface{} {
 				x := callee()
-				if a, ok := x.(Closure); ok {
-					body = a[2].(Baked)
-					params = a[3].([]int)
-					memoize = a[4].(*Memoize)
-					scopeInstance = a[5].(*ScopeInstance)
-					if len(params) != argsLen {
+				if a, ok := x.(*ScopeInstance); ok {
+					scopeInstance = a
+					if len(a.scope.paramIndexes) != argsLen {
 						emitError("Wrong number of arguments")
 					}
 				} else {
 					emitError(fmt.Sprintf("it is not possible to call a <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(x))]))
 				}
 
-				if memoize.enabled {
+				params := scopeInstance.scope.paramIndexes
+				if scopeInstance.scope.memoize.enabled {
+					memoize := scopeInstance.scope.memoize
 					key := ""
 					child := scopeInstance.Child(scopeInstance.scope)
 					for i, arg := range args {
@@ -207,7 +199,6 @@ func Bake(file string) Baked {
 					}
 					if v, h := memoize.cache[key]; h {
 						memoize.cacheMiss = 0
-						//fmt.Println("use memoize cache")
 						return v
 					} else if memoize.cacheSize == MemoizeCacheLimit {
 						if memoize.cacheMiss == 1000000 {
@@ -218,11 +209,10 @@ func Bake(file string) Baked {
 					}
 					bef := currScopeInstance
 					currScopeInstance = child
-					v := body()
+					v := scopeInstance.scope.body()
 					currScopeInstance = bef
 					if memoize.enabled {
 						if memoize.cacheSize >= MemoizeCacheLimit {
-							//fmt.Println("cache full")
 							for k := range memoize.cache {
 								delete(memoize.cache, k)
 								break
@@ -230,7 +220,6 @@ func Bake(file string) Baked {
 						} else {
 							memoize.cacheSize++
 						}
-						//fmt.Println("save memoize cache")
 						memoize.cache[key] = v
 					}
 					return v
@@ -241,7 +230,7 @@ func Bake(file string) Baked {
 					}
 					bef := currScopeInstance
 					currScopeInstance = child
-					v := body()
+					v := scopeInstance.scope.body()
 					currScopeInstance = bef
 					return v
 				}
@@ -249,42 +238,34 @@ func Bake(file string) Baked {
 
 		case "Function":
 			befScope := scopeBuilder
-			scope := newScope()
+			scope := newScopeBuilder()
 			scopeBuilder = scope
 
 			ownerLet := lastBakedLet
 			befScopedLets := scopedLets
 			scopedLets = []string{ownerLet}
-			paramIndexes := make([]int, len(term["parameters"].([]interface{})))
+			scope.paramIndexes = make([]int, len(term["parameters"].([]interface{})))
 			for i, p := range term["parameters"].([]interface{}) {
 				paramName := p.(map[string]interface{})["text"].(string)
-				paramIndexes[i] = scope.Register(paramName)
+				scope.paramIndexes[i] = scope.Register(paramName)
 				scopedLets = append(scopedLets, paramName)
 			}
 			if closureDepth == 0 { // apenas reseta quando a função está no root
 				isDirtyClosure = false
 			}
 			closureDepth++
-			body := bake(term["value"].(map[string]interface{}))
+			scope.body = bake(term["value"].(map[string]interface{}))
 			closureDepth--
 			//scope.End()
 			scopeBuilder = befScope
 			defer func() { scopedLets = befScopedLets }()
 
 			// Memoize
-			memoize := &Memoize{cache: map[string]interface{}{}}
-			memoize.enabled = ownerLet != "" && !isDirtyClosure
+			scope.memoize = &Memoize{cache: map[string]interface{}{}}
+			scope.memoize.enabled = ownerLet != "" && !isDirtyClosure
 
-			references := 0
-			onUnref := func() {
-				references--
-				if references == 0 {
-					memoize.cache = map[string]interface{}{}
-				}
-			}
 			return func() interface{} {
-				inst := currScopeInstance.Child(scope)
-				return Closure{&references, onUnref, body, paramIndexes, memoize, inst}
+				return currScopeInstance.Child(scope)
 			}
 
 		case "If":
@@ -766,8 +747,12 @@ func Bake(file string) Baked {
 			var print func(o interface{}) string
 			print = func(o interface{}) string {
 				switch v := o.(type) {
-				case Closure:
-					return "<#closure>"
+				case *ScopeInstance:
+					if v.scope.memoize != nil {
+						return "<#closure>"
+					} else {
+						return fmt.Sprint(v)
+					}
 				case Tuple:
 					s := []string{}
 					for _, d := range v {

@@ -38,6 +38,11 @@ func (self *ScopeInstance) Child(scope *ScopeBuilder) *ScopeInstance {
 type ScopeBuilder struct {
 	indexes map[string]int
 	seq     int
+
+	// closure
+	body         func() interface{}
+	paramIndexes []int
+	memoize      *Memoize
 }
 
 func (self *ScopeBuilder) Register(name string) int {
@@ -54,6 +59,6 @@ func (self *ScopeBuilder) New() *ScopeInstance {
 	return &ScopeInstance{scope: self, data: make([]interface{}, self.seq)}
 }
 
-func newScope() *ScopeBuilder {
+func newScopeBuilder() *ScopeBuilder {
 	return &ScopeBuilder{indexes: map[string]int{}}
 }

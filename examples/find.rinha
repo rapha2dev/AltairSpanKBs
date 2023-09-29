@@ -1,23 +1,23 @@
-let data = (((("a", "b"), ("c", "d")), (("e", "f"), ("g", "h"))), ((("i", "j"), ("k", "l")), (("m", "n"), ("o", "p"))));
-let find = fn (arr, dep, item) => {
-    let rec = fn (arr, dep) => {
-        if(dep == 0){
-            if(first(arr) == item){
-                item
+let find = fn (tuples, depth, target) => {
+    let f = fn (tuples, depth) => {
+        if(depth == 0){
+            if(first(tuples) == target){
+                target
             }else{
-                second(arr)
+                second(tuples)
             }
         }else{
-            let res = rec(first(arr), dep-1);
-            if(res == item){
-                item
+            let res = f(first(tuples), depth-1);
+            if(res == target){
+                target
             }else{
-                rec(second(arr), dep-1)
+                f(second(tuples), depth-1)
             }            
         }
     };    
-    rec(arr, dep)
+    f(tuples, depth)
 };
+let data = (((("a", "b"), ("c", "d")), (("e", "f"), ("g", "h"))), ((("i", "j"), ("k", "l")), (("m", "n"), ("o", "p"))));
 let target = "h";
 let res = find(data, 3, target);
 print(if (res == target) {
