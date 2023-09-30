@@ -10,31 +10,7 @@ import (
 	"strings"
 )
 
-type Baked struct {
-	c        int
-	executor func() interface{}
-}
-
-func (self *Baked) call(ch chan interface{}) {
-	ch <- self.executor()
-}
-func (self *Baked) Call() interface{} {
-	if self.c == 1000 {
-		self.c = 0
-		cb := make(chan interface{})
-		go self.call(cb)
-		return <-cb
-	} else {
-		self.c++
-		return self.executor()
-	}
-}
-
-func newBaked(executor func() interface{}) *Baked {
-	return &Baked{executor: executor}
-}
-
-func Bake(file string) *Baked {
+func Build(file string) *Node {
 	code, ast := LoadAst(file)
 
 	errorHandlers := []func(r interface{}){}
@@ -48,7 +24,7 @@ func Bake(file string) *Baked {
 
 	// ----- pré runtime
 	var scopeBuilder *ScopeBuilder
-	lastBakedLet := ""
+	lastNodeLet := ""
 	scopedLets := []string{}
 	isDirtyClosure := false
 	closureDepth := 0
@@ -59,11 +35,11 @@ func Bake(file string) *Baked {
 	currentErrorHandlerIndex := 0
 	// -----
 
-	var bake func(term map[string]interface{}) *Baked
-	bake = func(term map[string]interface{}) *Baked {
+	var buildNode func(term map[string]interface{}) *Node
+	buildNode = func(term map[string]interface{}) *Node {
 		if term["expression"] != nil {
 			exp := term["expression"].(map[string]interface{})
-			return newBaked(func() interface{} {
+			return newNode(func() interface{} {
 				defer func() {
 					if r := recover(); r != nil {
 						errorHandlers[currentErrorHandlerIndex](r)
@@ -71,9 +47,9 @@ func Bake(file string) *Baked {
 				}()
 				root := newScopeBuilder()
 				scopeBuilder = root
-				run := bake(exp)
+				run := buildNode(exp)
 				currScopeInstance = root.New()
-				return run.Call()
+				return run.Execute()
 			})
 		}
 
@@ -107,16 +83,16 @@ func Bake(file string) *Baked {
 
 		case "Int":
 			val := int64(term["value"].(float64))
-			return newBaked(func() interface{} { return val })
+			return newNode(func() interface{} { return val })
 
 		case "Str", "Bool":
 			val := term["value"]
-			return newBaked(func() interface{} { return val })
+			return newNode(func() interface{} { return val })
 
 		case "First":
-			tuple := bake(term["value"].(map[string]interface{}))
-			return newBaked(func() interface{} {
-				v := tuple.Call()
+			tuple := buildNode(term["value"].(map[string]interface{}))
+			return newNode(func() interface{} {
+				v := tuple.Execute()
 				if t, ok := v.(Tuple); ok {
 					return t[0]
 				} else {
@@ -126,9 +102,9 @@ func Bake(file string) *Baked {
 			})
 
 		case "Second":
-			tuple := bake(term["value"].(map[string]interface{}))
-			return newBaked(func() interface{} {
-				v := tuple.Call()
+			tuple := buildNode(term["value"].(map[string]interface{}))
+			return newNode(func() interface{} {
+				v := tuple.Execute()
 				if t, ok := v.(Tuple); ok {
 					return t[1]
 				} else {
@@ -138,20 +114,20 @@ func Bake(file string) *Baked {
 			})
 
 		case "Tuple":
-			first := bake(term["first"].(map[string]interface{}))
-			second := bake(term["second"].(map[string]interface{}))
-			return newBaked(func() interface{} { return Tuple{first.Call(), second.Call()} })
+			first := buildNode(term["first"].(map[string]interface{}))
+			second := buildNode(term["second"].(map[string]interface{}))
+			return newNode(func() interface{} { return Tuple{first.Execute(), second.Execute()} })
 
 		case "Let":
 			letName := term["name"].(map[string]interface{})["text"].(string)
-			lastBakedLet = letName
+			lastNodeLet = letName
 			name := scopeBuilder.Register(letName)
-			val := bake(term["value"].(map[string]interface{}))
-			lastBakedLet = ""
+			val := buildNode(term["value"].(map[string]interface{}))
+			lastNodeLet = ""
 			scopedLets = append(scopedLets, letName)
-			next := bake(term["next"].(map[string]interface{}))
-			return newBaked(func() interface{} {
-				g := val.Call()
+			next := buildNode(term["next"].(map[string]interface{}))
+			return newNode(func() interface{} {
+				g := val.Execute()
 				prev := currScopeInstance.Value(name, currScopeInstance.scope)
 				if prev != nil {
 					// a função antiga armazenada no let não será mais pura
@@ -161,7 +137,7 @@ func Bake(file string) *Baked {
 					}
 				}
 				currScopeInstance.Set(name, g)
-				return next.Call()
+				return next.Execute()
 			})
 
 		case "Var":
@@ -169,7 +145,7 @@ func Bake(file string) *Baked {
 			varName := term["text"].(string)
 			name := scopeBuilder.Register(varName)
 			isDirtyClosure = isDirtyClosure || !slices.Contains(scopedLets, varName)
-			return newBaked(func() interface{} {
+			return newNode(func() interface{} {
 				v := currScopeInstance.Value(name, scope)
 				if v == nil {
 					v = currScopeInstance.parent.Find(varName)
@@ -181,16 +157,16 @@ func Bake(file string) *Baked {
 			})
 
 		case "Call":
-			callee := bake(term["callee"].(map[string]interface{}))
-			args := make([]*Baked, len(term["arguments"].([]interface{})))
+			callee := buildNode(term["callee"].(map[string]interface{}))
+			args := make([]*Node, len(term["arguments"].([]interface{})))
 			for i, t := range term["arguments"].([]interface{}) {
-				args[i] = bake(t.(map[string]interface{}))
+				args[i] = buildNode(t.(map[string]interface{}))
 			}
 
 			argsLen := len(args)
 			var scopeInstance *ScopeInstance
-			return newBaked(func() interface{} {
-				x := callee.Call()
+			return newNode(func() interface{} {
+				x := callee.Execute()
 				if a, ok := x.(*ScopeInstance); ok {
 					scopeInstance = a
 					if len(a.scope.paramIndexes) != argsLen {
@@ -206,16 +182,16 @@ func Bake(file string) *Baked {
 					key := ""
 					child := scopeInstance.Child(scopeInstance.scope)
 					for i, arg := range args {
-						switch a := arg.Call().(type) {
+						switch a := arg.Execute().(type) {
 						case int64:
 							key += strconv.FormatInt(a, 10) + ","
-							child.Set(params[i], arg.Call())
+							child.Set(params[i], arg.Execute())
 						case *big.Int:
 							key += a.String() + ","
-							child.Set(params[i], arg.Call())
+							child.Set(params[i], arg.Execute())
 						default: // se não tiver valor valido desabilita a cache
 							memoize.enabled = false
-							child.Set(params[i], arg.Call())
+							child.Set(params[i], arg.Execute())
 						}
 					}
 					if v, h := memoize.cache[key]; h {
@@ -230,7 +206,7 @@ func Bake(file string) *Baked {
 					}
 					prev := currScopeInstance
 					currScopeInstance = child
-					v := scopeInstance.scope.body.Call()
+					v := scopeInstance.scope.body.Execute()
 					currScopeInstance = prev
 					if memoize.enabled {
 						if memoize.cacheSize >= MemoizeCacheLimit {
@@ -247,11 +223,11 @@ func Bake(file string) *Baked {
 				} else {
 					child := scopeInstance.Child(scopeInstance.scope)
 					for i, arg := range args {
-						child.Set(params[i], arg.Call())
+						child.Set(params[i], arg.Execute())
 					}
 					prev := currScopeInstance
 					currScopeInstance = child
-					v := scopeInstance.scope.body.Call()
+					v := scopeInstance.scope.body.Execute()
 					currScopeInstance = prev
 					return v
 				}
@@ -262,7 +238,7 @@ func Bake(file string) *Baked {
 			scope := newScopeBuilder()
 			scopeBuilder = scope
 
-			ownerLet := lastBakedLet
+			ownerLet := lastNodeLet
 			prevScopedLets := scopedLets
 			scopedLets = []string{ownerLet}
 			scope.paramIndexes = make([]int, len(term["parameters"].([]interface{})))
@@ -275,7 +251,7 @@ func Bake(file string) *Baked {
 				isDirtyClosure = false
 			}
 			closureDepth++
-			scope.body = bake(term["value"].(map[string]interface{}))
+			scope.body = buildNode(term["value"].(map[string]interface{}))
 			closureDepth--
 			scopeBuilder = prevScope
 			defer func() { scopedLets = prevScopedLets }()
@@ -284,37 +260,37 @@ func Bake(file string) *Baked {
 			scope.memoize = &Memoize{cache: map[string]interface{}{}}
 			scope.memoize.enabled = ownerLet != "" && !isDirtyClosure
 
-			return newBaked(func() interface{} {
+			return newNode(func() interface{} {
 				return currScopeInstance.Child(scope)
 			})
 
 		case "If":
-			condition := bake(term["condition"].(map[string]interface{}))
-			then := bake(term["then"].(map[string]interface{}))
-			otherwise := bake(term["otherwise"].(map[string]interface{}))
-			return newBaked(func() interface{} {
-				v := condition.Call()
+			condition := buildNode(term["condition"].(map[string]interface{}))
+			then := buildNode(term["then"].(map[string]interface{}))
+			otherwise := buildNode(term["otherwise"].(map[string]interface{}))
+			return newNode(func() interface{} {
+				v := condition.Execute()
 				if b, ok := v.(bool); ok {
 					if b {
-						return then.Call()
+						return then.Execute()
 					}
 				} else {
 					emitError(fmt.Sprintf("Invalid type: if(<%s>)", errorTypeDict[fmt.Sprint(reflect.TypeOf(v))]))
 				}
-				return otherwise.Call()
+				return otherwise.Execute()
 			})
 
 		case "Binary":
-			lhs := bake(term["lhs"].(map[string]interface{}))
-			rhs := bake(term["rhs"].(map[string]interface{}))
+			lhs := buildNode(term["lhs"].(map[string]interface{}))
+			rhs := buildNode(term["rhs"].(map[string]interface{}))
 
 			// otimização quando o rhs é um literal Int ou Bool
 			if rightKind := term["rhs"].(map[string]interface{})["kind"]; rightKind == "Int" {
 				switch term["op"] {
 				case "Sub":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l - r
 						case *big.Int:
@@ -325,9 +301,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Mul":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l * r
 						case *big.Int:
@@ -338,9 +314,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Div":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							if r == 0 {
 								emitError("Integer divide by zero")
@@ -354,9 +330,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Rem":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l % r
 						case *big.Int:
@@ -367,9 +343,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Lt":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l < r
 						case *big.Int:
@@ -380,9 +356,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Lte":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l <= r
 						case *big.Int:
@@ -393,9 +369,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Gt":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l > r
 						case *big.Int:
@@ -406,9 +382,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Gte":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l >= r
 						case *big.Int:
@@ -419,9 +395,9 @@ func Bake(file string) *Baked {
 						return nil
 					})
 				case "Eq":
-					r := rhs.Call().(int64)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(int64)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case int64:
 							return l == r
 						case *big.Int:
@@ -435,9 +411,9 @@ func Bake(file string) *Baked {
 			} else if rightKind == "Bool" {
 				switch term["op"] {
 				case "Eq":
-					r := rhs.Call().(bool)
-					return newBaked(func() interface{} {
-						switch l := lhs.Call().(type) {
+					r := rhs.Execute().(bool)
+					return newNode(func() interface{} {
+						switch l := lhs.Execute().(type) {
 						case bool:
 							return l == r
 						default:
@@ -450,10 +426,10 @@ func Bake(file string) *Baked {
 
 			switch term["op"] {
 			case "Add":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							if isAddOverflow(l, r) {
 								return big.NewInt(0).Add(big.NewInt(l), big.NewInt(r))
@@ -467,7 +443,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> + <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return big.NewInt(0).Add(l, big.NewInt(r))
 						case *big.Int:
@@ -478,7 +454,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> + <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case string:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l + strconv.FormatInt(r, 10)
 						case *big.Int:
@@ -494,10 +470,10 @@ func Bake(file string) *Baked {
 					return nil
 				})
 			case "Sub":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							if isAddOverflow(l, -r) {
 								return big.NewInt(0).Sub(big.NewInt(l), big.NewInt(r))
@@ -509,7 +485,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> - <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return big.NewInt(0).Sub(l, big.NewInt(r))
 						case *big.Int:
@@ -524,10 +500,10 @@ func Bake(file string) *Baked {
 				})
 
 			case "Mul":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l * r
 						default:
@@ -541,10 +517,10 @@ func Bake(file string) *Baked {
 				})
 
 			case "Div":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							if r == 0 {
 								emitError("integer divide by zero")
@@ -561,10 +537,10 @@ func Bake(file string) *Baked {
 				})
 
 			case "Rem":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l % r
 						default:
@@ -578,10 +554,10 @@ func Bake(file string) *Baked {
 				})
 
 			case "Lt":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l < r
 						case *big.Int:
@@ -590,7 +566,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l.Cmp(big.NewInt(r)) == -1
 						case *big.Int:
@@ -604,10 +580,10 @@ func Bake(file string) *Baked {
 					return nil
 				})
 			case "Lte":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l <= r
 						case *big.Int:
@@ -616,7 +592,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> < <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l.Cmp(big.NewInt(r)) <= 0
 						case *big.Int:
@@ -630,10 +606,10 @@ func Bake(file string) *Baked {
 					return nil
 				})
 			case "Gt":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l > r
 						case *big.Int:
@@ -642,7 +618,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l.Cmp(big.NewInt(r)) == 1
 						case *big.Int:
@@ -656,10 +632,10 @@ func Bake(file string) *Baked {
 					return nil
 				})
 			case "Gte":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l >= r
 						case *big.Int:
@@ -668,7 +644,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> > <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l.Cmp(big.NewInt(r)) >= 0
 						case *big.Int:
@@ -688,10 +664,10 @@ func Bake(file string) *Baked {
 					sign = false
 					op = "!="
 				}
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case int64:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l == r == sign
 						case *big.Int:
@@ -700,7 +676,7 @@ func Bake(file string) *Baked {
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], op, errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case *big.Int:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case int64:
 							return l.Cmp(big.NewInt(r)) == 0 == sign
 						case *big.Int:
@@ -710,14 +686,14 @@ func Bake(file string) *Baked {
 						}
 
 					case bool:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case bool:
 							return l == r == sign
 						default:
 							emitError(fmt.Sprintf("Invalid binary operation: <%s> %s <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(l))], op, errorTypeDict[fmt.Sprint(reflect.TypeOf(r))]))
 						}
 					case string:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case string:
 							return l == r == sign
 						default:
@@ -729,10 +705,10 @@ func Bake(file string) *Baked {
 					return nil
 				})
 			case "Or":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case bool:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case bool:
 							return l || r
 						default:
@@ -744,10 +720,10 @@ func Bake(file string) *Baked {
 					return nil
 				})
 			case "And":
-				return newBaked(func() interface{} {
-					switch l := lhs.Call().(type) {
+				return newNode(func() interface{} {
+					switch l := lhs.Execute().(type) {
 					case bool:
-						switch r := rhs.Call().(type) {
+						switch r := rhs.Execute().(type) {
 						case bool:
 							return l && r
 						default:
@@ -762,7 +738,7 @@ func Bake(file string) *Baked {
 
 		case "Print":
 			isDirtyClosure = true
-			val := bake(term["value"].(map[string]interface{}))
+			val := buildNode(term["value"].(map[string]interface{}))
 
 			var print func(o interface{}) string
 			print = func(o interface{}) string {
@@ -784,8 +760,8 @@ func Bake(file string) *Baked {
 				}
 			}
 
-			return newBaked(func() interface{} {
-				v := val.Call()
+			return newNode(func() interface{} {
+				v := val.Execute()
 				fmt.Println(print(v))
 				return v
 			})
@@ -793,5 +769,5 @@ func Bake(file string) *Baked {
 		return nil
 	}
 
-	return bake(ast)
+	return buildNode(ast)
 }
