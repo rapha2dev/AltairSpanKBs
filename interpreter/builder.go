@@ -10,9 +10,9 @@ import (
 	"strings"
 )
 
-type Baked func() interface{}
+type NodeExecutor func() interface{}
 
-func Bake(file string) Baked {
+func Build(file string) NodeExecutor {
 	code, ast := LoadAst(file)
 
 	errorHandlers := []func(r interface{}){}
@@ -26,7 +26,7 @@ func Bake(file string) Baked {
 
 	// ----- pré runtime
 	var scopeBuilder *ScopeBuilder
-	lastBakedLet := ""
+	lastNodeLet := ""
 	scopedLets := []string{}
 	isDirtyClosure := false
 	closureDepth := 0
@@ -37,8 +37,8 @@ func Bake(file string) Baked {
 	currentErrorHandlerIndex := 0
 	// -----
 
-	var bake func(term map[string]interface{}) Baked
-	bake = func(term map[string]interface{}) Baked {
+	var build func(term map[string]interface{}) NodeExecutor
+	build = func(term map[string]interface{}) NodeExecutor {
 		if term["expression"] != nil {
 			exp := term["expression"].(map[string]interface{})
 			return func() interface{} {
@@ -49,7 +49,7 @@ func Bake(file string) Baked {
 				}()
 				root := newScopeBuilder()
 				scopeBuilder = root
-				run := bake(exp)
+				run := build(exp)
 				currScopeInstance = root.New()
 				return run()
 			}
@@ -92,7 +92,7 @@ func Bake(file string) Baked {
 			return func() interface{} { return val }
 
 		case "First":
-			tuple := bake(term["value"].(map[string]interface{}))
+			tuple := build(term["value"].(map[string]interface{}))
 			return func() interface{} {
 				v := tuple()
 				if t, ok := v.(Tuple); ok {
@@ -104,7 +104,7 @@ func Bake(file string) Baked {
 			}
 
 		case "Second":
-			tuple := bake(term["value"].(map[string]interface{}))
+			tuple := build(term["value"].(map[string]interface{}))
 			return func() interface{} {
 				v := tuple()
 				if t, ok := v.(Tuple); ok {
@@ -116,26 +116,26 @@ func Bake(file string) Baked {
 			}
 
 		case "Tuple":
-			first := bake(term["first"].(map[string]interface{}))
-			second := bake(term["second"].(map[string]interface{}))
+			first := build(term["first"].(map[string]interface{}))
+			second := build(term["second"].(map[string]interface{}))
 			return func() interface{} { return Tuple{first(), second()} }
 
 		case "Let":
 			letName := term["name"].(map[string]interface{})["text"].(string)
-			lastBakedLet = letName
+			lastNodeLet = letName
 			name := scopeBuilder.Register(letName)
-			val := bake(term["value"].(map[string]interface{}))
-			lastBakedLet = ""
+			val := build(term["value"].(map[string]interface{}))
+			lastNodeLet = ""
 			scopedLets = append(scopedLets, letName)
-			next := bake(term["next"].(map[string]interface{}))
+			next := build(term["next"].(map[string]interface{}))
 			return func() interface{} {
 				g := val()
-				prev := currScopeInstance.Value(name, currScopeInstance.scope)
+				prev := currScopeInstance.Value(name, currScopeInstance.builder)
 				if prev != nil {
 					// a função antiga armazenada no let não será mais pura
-					if h, ok := prev.(*ScopeInstance); ok && h.scope.memoize != nil {
-						h.scope.memoize.enabled = false
-						h.scope.memoize.cache = nil
+					if h, ok := prev.(*ScopeInstance); ok && h.builder.memoize != nil {
+						h.builder.memoize.enabled = false
+						h.builder.memoize.cache = nil
 					}
 				}
 				currScopeInstance.Set(name, g)
@@ -159,10 +159,10 @@ func Bake(file string) Baked {
 			}
 
 		case "Call":
-			callee := bake(term["callee"].(map[string]interface{}))
-			args := make([]Baked, len(term["arguments"].([]interface{})))
+			callee := build(term["callee"].(map[string]interface{}))
+			args := make([]NodeExecutor, len(term["arguments"].([]interface{})))
 			for i, t := range term["arguments"].([]interface{}) {
-				args[i] = bake(t.(map[string]interface{}))
+				args[i] = build(t.(map[string]interface{}))
 			}
 
 			argsLen := len(args)
@@ -171,18 +171,18 @@ func Bake(file string) Baked {
 				x := callee()
 				if a, ok := x.(*ScopeInstance); ok {
 					scopeInstance = a
-					if len(a.scope.paramIndexes) != argsLen {
+					if len(a.builder.paramIndexes) != argsLen {
 						emitError("Wrong number of arguments")
 					}
 				} else {
 					emitError(fmt.Sprintf("it is not possible to call a <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(x))]))
 				}
 
-				params := scopeInstance.scope.paramIndexes
-				if scopeInstance.scope.memoize.enabled {
-					memoize := scopeInstance.scope.memoize
+				params := scopeInstance.builder.paramIndexes
+				if scopeInstance.builder.memoize.enabled {
+					memoize := scopeInstance.builder.memoize
 					key := ""
-					child := scopeInstance.Child(scopeInstance.scope)
+					child := scopeInstance.Child(scopeInstance.builder)
 					for i, arg := range args {
 						switch a := arg().(type) {
 						case int64:
@@ -208,7 +208,7 @@ func Bake(file string) Baked {
 					}
 					prev := currScopeInstance
 					currScopeInstance = child
-					v := scopeInstance.scope.body()
+					v := scopeInstance.builder.body()
 					currScopeInstance = prev
 					if memoize.enabled {
 						if memoize.cacheSize >= MemoizeCacheLimit {
@@ -223,13 +223,13 @@ func Bake(file string) Baked {
 					}
 					return v
 				} else {
-					child := scopeInstance.Child(scopeInstance.scope)
+					child := scopeInstance.Child(scopeInstance.builder)
 					for i, arg := range args {
 						child.Set(params[i], arg())
 					}
 					prev := currScopeInstance
 					currScopeInstance = child
-					v := scopeInstance.scope.body()
+					v := scopeInstance.builder.body()
 					currScopeInstance = prev
 					return v
 				}
@@ -240,7 +240,7 @@ func Bake(file string) Baked {
 			scope := newScopeBuilder()
 			scopeBuilder = scope
 
-			ownerLet := lastBakedLet
+			ownerLet := lastNodeLet
 			prevScopedLets := scopedLets
 			scopedLets = []string{ownerLet}
 			scope.paramIndexes = make([]int, len(term["parameters"].([]interface{})))
@@ -253,7 +253,7 @@ func Bake(file string) Baked {
 				isDirtyClosure = false
 			}
 			closureDepth++
-			scope.body = bake(term["value"].(map[string]interface{}))
+			scope.body = build(term["value"].(map[string]interface{}))
 			closureDepth--
 			scopeBuilder = prevScope
 			defer func() { scopedLets = prevScopedLets }()
@@ -267,9 +267,9 @@ func Bake(file string) Baked {
 			}
 
 		case "If":
-			condition := bake(term["condition"].(map[string]interface{}))
-			then := bake(term["then"].(map[string]interface{}))
-			otherwise := bake(term["otherwise"].(map[string]interface{}))
+			condition := build(term["condition"].(map[string]interface{}))
+			then := build(term["then"].(map[string]interface{}))
+			otherwise := build(term["otherwise"].(map[string]interface{}))
 			return func() interface{} {
 				v := condition()
 				if b, ok := v.(bool); ok {
@@ -283,8 +283,8 @@ func Bake(file string) Baked {
 			}
 
 		case "Binary":
-			lhs := bake(term["lhs"].(map[string]interface{}))
-			rhs := bake(term["rhs"].(map[string]interface{}))
+			lhs := build(term["lhs"].(map[string]interface{}))
+			rhs := build(term["rhs"].(map[string]interface{}))
 
 			// otimização quando o rhs é um literal Int ou Bool
 			if rightKind := term["rhs"].(map[string]interface{})["kind"]; rightKind == "Int" {
@@ -740,13 +740,13 @@ func Bake(file string) Baked {
 
 		case "Print":
 			isDirtyClosure = true
-			val := bake(term["value"].(map[string]interface{}))
+			val := build(term["value"].(map[string]interface{}))
 
 			var print func(o interface{}) string
 			print = func(o interface{}) string {
 				switch v := o.(type) {
 				case *ScopeInstance:
-					if v.scope.memoize != nil {
+					if v.builder.memoize != nil {
 						return "<#closure>"
 					} else {
 						return fmt.Sprint(v)
@@ -771,5 +771,5 @@ func Bake(file string) Baked {
 		return nil
 	}
 
-	return bake(ast)
+	return build(ast)
 }

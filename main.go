@@ -15,7 +15,7 @@ func main() {
 		file = os.Args[1]
 	}
 
-	program := interpreter.Bake(file)
+	program := interpreter.Build(file)
 	if os.Args[len(os.Args)-1] == "time" {
 		t := time.Now()
 		program()

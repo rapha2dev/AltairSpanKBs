@@ -14,7 +14,7 @@ func TestExamples(t *testing.T) {
 		if !strings.Contains(file.Name(), ".rinha") {
 			continue
 		}
-		prog := Bake("../examples/" + file.Name())
+		prog := Build("../examples/" + file.Name())
 		fmt.Println(">>>>>>>>>>>> ", file.Name())
 		t := time.Now()
 		prog()
