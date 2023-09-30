@@ -20,7 +20,7 @@ Altair Spankabytes é um simples interpretador feito exclusivamente para rodar a
 - [x] Mecânismo que utiliza goroutines para evitar estouro de pilha, sem alterar o desempenho. (Demanda-se mais memória RAM)
 
 ## Desempenho
-Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz
+Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz, RAM 16,0 GB
 
 |Exemplo           | Altair           
 |:-----------------|:-----------------:|
