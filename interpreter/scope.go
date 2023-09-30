@@ -1,9 +1,9 @@
 package interpreter
 
 type ScopeInstance struct {
-	parent *ScopeInstance
-	scope  *ScopeBuilder
-	data   []interface{}
+	parent  *ScopeInstance
+	builder *ScopeBuilder
+	data    []interface{}
 }
 
 func (self *ScopeInstance) Set(index int, v interface{}) {
@@ -11,7 +11,7 @@ func (self *ScopeInstance) Set(index int, v interface{}) {
 }
 
 func (self *ScopeInstance) Find(name string) interface{} {
-	if i, h := self.scope.indexes[name]; h {
+	if i, h := self.builder.indexes[name]; h {
 		if self.data[i] != nil {
 			return self.data[i]
 		}
@@ -23,14 +23,14 @@ func (self *ScopeInstance) Find(name string) interface{} {
 }
 
 func (self *ScopeInstance) Value(index int, scope *ScopeBuilder) interface{} {
-	if scope == self.scope {
+	if scope == self.builder {
 		return self.data[index]
 	}
 	return nil
 }
 
 func (self *ScopeInstance) Child(scope *ScopeBuilder) *ScopeInstance {
-	return &ScopeInstance{parent: self, scope: scope, data: make([]interface{}, scope.seq)}
+	return &ScopeInstance{parent: self, builder: scope, data: make([]interface{}, scope.seq)}
 }
 
 // -------------------
@@ -56,7 +56,7 @@ func (self *ScopeBuilder) Register(name string) int {
 }
 
 func (self *ScopeBuilder) New() *ScopeInstance {
-	return &ScopeInstance{scope: self, data: make([]interface{}, self.seq)}
+	return &ScopeInstance{builder: self, data: make([]interface{}, self.seq)}
 }
 
 func newScopeBuilder() *ScopeBuilder {

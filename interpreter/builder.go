@@ -128,12 +128,12 @@ func Build(file string) *Node {
 			next := buildNode(term["next"].(map[string]interface{}))
 			return newNode(func() interface{} {
 				g := val.Execute()
-				prev := currScopeInstance.Value(name, currScopeInstance.scope)
+				prev := currScopeInstance.Value(name, currScopeInstance.builder)
 				if prev != nil {
 					// a função antiga armazenada no let não será mais pura
-					if h, ok := prev.(*ScopeInstance); ok && h.scope.memoize != nil {
-						h.scope.memoize.enabled = false
-						h.scope.memoize.cache = nil
+					if h, ok := prev.(*ScopeInstance); ok && h.builder.memoize != nil {
+						h.builder.memoize.enabled = false
+						h.builder.memoize.cache = nil
 					}
 				}
 				currScopeInstance.Set(name, g)
@@ -169,18 +169,18 @@ func Build(file string) *Node {
 				x := callee.Execute()
 				if a, ok := x.(*ScopeInstance); ok {
 					scopeInstance = a
-					if len(a.scope.paramIndexes) != argsLen {
+					if len(a.builder.paramIndexes) != argsLen {
 						emitError("Wrong number of arguments")
 					}
 				} else {
 					emitError(fmt.Sprintf("it is not possible to call a <%s>", errorTypeDict[fmt.Sprint(reflect.TypeOf(x))]))
 				}
 
-				params := scopeInstance.scope.paramIndexes
-				if scopeInstance.scope.memoize.enabled {
-					memoize := scopeInstance.scope.memoize
+				params := scopeInstance.builder.paramIndexes
+				if scopeInstance.builder.memoize.enabled {
+					memoize := scopeInstance.builder.memoize
 					key := ""
-					child := scopeInstance.Child(scopeInstance.scope)
+					child := scopeInstance.Child(scopeInstance.builder)
 					for i, arg := range args {
 						switch a := arg.Execute().(type) {
 						case int64:
@@ -206,7 +206,7 @@ func Build(file string) *Node {
 					}
 					prev := currScopeInstance
 					currScopeInstance = child
-					v := scopeInstance.scope.body.Execute()
+					v := scopeInstance.builder.body.Execute()
 					currScopeInstance = prev
 					if memoize.enabled {
 						if memoize.cacheSize >= MemoizeCacheLimit {
@@ -221,13 +221,13 @@ func Build(file string) *Node {
 					}
 					return v
 				} else {
-					child := scopeInstance.Child(scopeInstance.scope)
+					child := scopeInstance.Child(scopeInstance.builder)
 					for i, arg := range args {
 						child.Set(params[i], arg.Execute())
 					}
 					prev := currScopeInstance
 					currScopeInstance = child
-					v := scopeInstance.scope.body.Execute()
+					v := scopeInstance.builder.body.Execute()
 					currScopeInstance = prev
 					return v
 				}
@@ -744,7 +744,7 @@ func Build(file string) *Node {
 			print = func(o interface{}) string {
 				switch v := o.(type) {
 				case *ScopeInstance:
-					if v.scope.memoize != nil {
+					if v.builder.memoize != nil {
 						return "<#closure>"
 					} else {
 						return fmt.Sprint(v)
