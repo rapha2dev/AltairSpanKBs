@@ -17,7 +17,7 @@ func TestExamples(t *testing.T) {
 		prog := Bake("../examples/" + file.Name())
 		fmt.Println(">>>>>>>>>>>> ", file.Name())
 		t := time.Now()
-		prog()
+		prog.Call()
 		fmt.Println("<<<<<<<<<<<< time:", time.Now().Sub(t).Seconds())
 		fmt.Println()
 	}

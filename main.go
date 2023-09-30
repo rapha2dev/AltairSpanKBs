@@ -18,9 +18,9 @@ func main() {
 	program := interpreter.Bake(file)
 	if os.Args[len(os.Args)-1] == "time" {
 		t := time.Now()
-		program()
+		program.Call()
 		fmt.Printf("\ntime: %f secs\n\n", time.Now().Sub(t).Seconds())
 	} else {
-		program()
+		program.Call()
 	}
 }

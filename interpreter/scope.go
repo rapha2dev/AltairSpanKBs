@@ -40,7 +40,7 @@ type ScopeBuilder struct {
 	seq     int
 
 	// closure
-	body         func() interface{}
+	body         *Baked
 	paramIndexes []int
 	memoize      *Memoize
 }
