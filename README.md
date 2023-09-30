@@ -25,9 +25,12 @@ Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz
 |Exemplo           | Altair           
 |:-----------------|:-----------------:|
 |fib(46)           |~0.0005 secs       |
-|fib(430000)       |~6.1 secs          |
-|hanoi(420000)     |~15.0 secs         |
-|sum(420000)       |~0.82 secs         |
+|fib(430000)       |~2.6 secs          |
+|fib(1000000)      |~11.0 secs         |
+|hanoi(420000)     |~5.6 secs          |
+|hanoi(1000000)    |~26.4 secs         |
+|sum(420000)       |~0.75 secs         |
+|sum(5000000)      |~20.2 secs         |
 
 ## Como utilizar
 ```

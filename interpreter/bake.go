@@ -19,13 +19,13 @@ func (self *Baked) call(ch chan interface{}) {
 	ch <- self.executor()
 }
 func (self *Baked) Call() interface{} {
-	self.c++
-	if self.c == 5000 {
+	if self.c == 1000 {
 		self.c = 0
 		cb := make(chan interface{})
 		go self.call(cb)
 		return <-cb
 	} else {
+		self.c++
 		return self.executor()
 	}
 }
