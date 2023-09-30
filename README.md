@@ -48,5 +48,5 @@ go test -v ./interpreter
 ```
 ou 
 ```
-go run . ./examples/my-test.rinha time
+go run . ./examples/fib.rinha time
 ```
