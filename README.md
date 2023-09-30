@@ -8,15 +8,16 @@ Altair Spankabytes é um simples interpretador feito exclusivamente para rodar a
 - Feito apenas em Go 1.21 com suas libs internas.
 - Todas as otimizações são genericas, não importando se é um cálculo de fibonacci, fatorial, etc.
 - Interpreta em dois passos:
-    1. Pré-Runtime: faz verificações para memoization, configura a construção de escopos e cria funções específicas para executar cada nó da AST.
+    1. Pré-Runtime: faz verificações para memoização, configura a construção de escopos e cria funções específicas para executar cada nó da AST.
     2. Runtime: execução recursiva das funções dos nós e verificações de erros.
 
 ## Funcionalidades
 - [x] Shadowing
-- [x] Automatic Memoization
+- [x] Memoização automática
 - [x] Usa int64 como padrão e faz conversão automática em runtime para bigint (suportando valores altos no fibonacci com recursão de cauda).
 - [x] Descreve erros em runtime indicando a linha/coluna e o código do trecho problemático.
 - [x] Suporta recursões profundas.
+- [x] Mecânismo que utiliza goroutines para evitar estouro de pilha, sem alterar o desempenho. (Demanda-se mais memória RAM)
 
 ## Desempenho
 Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz
