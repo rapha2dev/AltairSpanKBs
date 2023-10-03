@@ -5,7 +5,7 @@ Feito em Go e exclusivamente para a rinha de compiladores, Altair Spankabytes é
 
 ## Características
 - Baseado em tree-walking interpreter.
-- Feito apenas em Go 1.21 e sua biblioteca padrão.
+- Feito apenas em Go 1.21 + biblioteca padrão.
 - Todas as otimizações são genéricas, não importando se é um cálculo de fibonacci, fatorial, etc.
 - Interpreta em duas etapas:
     1. Pré-Runtime: faz verificações para memoização, configura a construção de escopos e cria funções específicas para executar cada nó da AST.
